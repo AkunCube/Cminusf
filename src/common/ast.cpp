@@ -1,7 +1,9 @@
 #include "ast.hpp"
+
 #include <cstring>
 #include <iostream>
 #include <stack>
+
 #define _AST_NODE_ERROR_                                                       \
   std::cerr << "Abort due to node cast error."                                 \
                "Contact with TAs to solve your problem."                       \
@@ -355,119 +357,47 @@ ASTNode *AST::transform_node_iter(syntax_tree_node *n) {
   }
 }
 
-void ASTProgram::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTNum::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTVarDeclaration::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTFunDeclaration::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTParam::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTCompoundStmt::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTExpressionStmt::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTSelectionStmt::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTIterationStmt::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTReturnStmt::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTAssignExpression::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTSimpleExpression::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTAdditiveExpression::accept(ASTVisitor &visitor) {
-  visitor.visit(*this);
+Value *ASTProgram::accept(ASTVisitor &visitor) { return visitor.visit(*this); }
+Value *ASTNum::accept(ASTVisitor &visitor) { return visitor.visit(*this); }
+Value *ASTVarDeclaration::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
 }
-void ASTVar::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTTerm::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-void ASTCall::accept(ASTVisitor &visitor) { visitor.visit(*this); }
-
-void ASTFactor::accept(ASTVisitor &visitor) {
-  auto expr = dynamic_cast<ASTExpression *>(this);
-  if (expr) {
-    expr->accept(visitor);
-    return;
-  }
-
-  auto var = dynamic_cast<ASTVar *>(this);
-  if (var) {
-    var->accept(visitor);
-    return;
-  }
-
-  auto call = dynamic_cast<ASTCall *>(this);
-  if (call) {
-    call->accept(visitor);
-    return;
-  }
-
-  auto num = dynamic_cast<ASTNum *>(this);
-  if (num) {
-    num->accept(visitor);
-    return;
-  }
-
-  _AST_NODE_ERROR_
+Value *ASTFunDeclaration::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
 }
-
-void ASTDeclaration::accept(ASTVisitor &visitor) {
-  auto var_decl = dynamic_cast<ASTVarDeclaration *>(this);
-  if (var_decl) {
-    var_decl->accept(visitor);
-    return;
-  }
-  auto fun_decl = dynamic_cast<ASTFunDeclaration *>(this);
-  if (fun_decl) {
-    fun_decl->accept(visitor);
-    return;
-  }
-  _AST_NODE_ERROR_
+Value *ASTParam::accept(ASTVisitor &visitor) { return visitor.visit(*this); }
+Value *ASTCompoundStmt::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
 }
-
-void ASTStatement::accept(ASTVisitor &visitor) {
-  auto comp_stmt = dynamic_cast<ASTCompoundStmt *>(this);
-  if (comp_stmt) {
-    comp_stmt->accept(visitor);
-    return;
-  }
-
-  auto expr_stmt = dynamic_cast<ASTExpressionStmt *>(this);
-  if (expr_stmt) {
-    expr_stmt->accept(visitor);
-    return;
-  }
-
-  auto sele_stmt = dynamic_cast<ASTSelectionStmt *>(this);
-  if (sele_stmt) {
-    sele_stmt->accept(visitor);
-    return;
-  }
-
-  auto iter_stmt = dynamic_cast<ASTIterationStmt *>(this);
-  if (iter_stmt) {
-    iter_stmt->accept(visitor);
-    return;
-  }
-
-  auto ret_stmt = dynamic_cast<ASTReturnStmt *>(this);
-  if (ret_stmt) {
-    ret_stmt->accept(visitor);
-    return;
-  }
-  _AST_NODE_ERROR_
+Value *ASTExpressionStmt::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
 }
-
-void ASTExpression::accept(ASTVisitor &visitor) {
-  auto simple_expr = dynamic_cast<ASTSimpleExpression *>(this);
-  if (simple_expr) {
-    simple_expr->accept(visitor);
-    return;
-  }
-
-  auto assign_expr = dynamic_cast<ASTAssignExpression *>(this);
-  if (assign_expr) {
-    assign_expr->accept(visitor);
-    return;
-  }
-  _AST_NODE_ERROR_
+Value *ASTSelectionStmt::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
 }
+Value *ASTIterationStmt::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
+}
+Value *ASTReturnStmt::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
+}
+Value *ASTAssignExpression::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
+}
+Value *ASTSimpleExpression::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
+}
+Value *ASTAdditiveExpression::accept(ASTVisitor &visitor) {
+  return visitor.visit(*this);
+}
+Value *ASTVar::accept(ASTVisitor &visitor) { return visitor.visit(*this); }
+Value *ASTTerm::accept(ASTVisitor &visitor) { return visitor.visit(*this); }
+Value *ASTCall::accept(ASTVisitor &visitor) { return visitor.visit(*this); }
 
 #define _DEBUG_PRINT_N_(N)                                                     \
   { std::cout << std::string(N, '-'); }
 
-void ASTPrinter::visit(ASTProgram &node) {
+Value *ASTPrinter::visit(ASTProgram &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "program" << std::endl;
   add_depth();
@@ -475,9 +405,10 @@ void ASTPrinter::visit(ASTProgram &node) {
     decl->accept(*this);
   }
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTNum &node) {
+Value *ASTPrinter::visit(ASTNum &node) {
   _DEBUG_PRINT_N_(depth);
   if (node.type == TYPE_INT) {
     std::cout << "num (int): " << node.i_val << std::endl;
@@ -486,9 +417,10 @@ void ASTPrinter::visit(ASTNum &node) {
   } else {
     _AST_NODE_ERROR_
   }
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTVarDeclaration &node) {
+Value *ASTPrinter::visit(ASTVarDeclaration &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "var-declaration: " << node.id;
   if (node.num != nullptr) {
@@ -496,12 +428,13 @@ void ASTPrinter::visit(ASTVarDeclaration &node) {
     add_depth();
     node.num->accept(*this);
     remove_depth();
-    return;
+    return nullptr;
   }
   std::cout << std::endl;
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTFunDeclaration &node) {
+Value *ASTPrinter::visit(ASTFunDeclaration &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "fun-declaration: " << node.id << std::endl;
   add_depth();
@@ -511,17 +444,19 @@ void ASTPrinter::visit(ASTFunDeclaration &node) {
 
   node.compound_stmt->accept(*this);
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTParam &node) {
+Value *ASTPrinter::visit(ASTParam &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "param: " << node.id;
   if (node.isarray)
     std::cout << "[]";
   std::cout << std::endl;
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTCompoundStmt &node) {
+Value *ASTPrinter::visit(ASTCompoundStmt &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "compound-stmt" << std::endl;
   add_depth();
@@ -533,18 +468,20 @@ void ASTPrinter::visit(ASTCompoundStmt &node) {
     stmt->accept(*this);
   }
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTExpressionStmt &node) {
+Value *ASTPrinter::visit(ASTExpressionStmt &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "expression-stmt" << std::endl;
   add_depth();
   if (node.expression != nullptr)
     node.expression->accept(*this);
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTSelectionStmt &node) {
+Value *ASTPrinter::visit(ASTSelectionStmt &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "selection-stmt" << std::endl;
   add_depth();
@@ -553,18 +490,20 @@ void ASTPrinter::visit(ASTSelectionStmt &node) {
   if (node.else_statement != nullptr)
     node.else_statement->accept(*this);
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTIterationStmt &node) {
+Value *ASTPrinter::visit(ASTIterationStmt &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "iteration-stmt" << std::endl;
   add_depth();
   node.expression->accept(*this);
   node.statement->accept(*this);
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTReturnStmt &node) {
+Value *ASTPrinter::visit(ASTReturnStmt &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "return-stmt";
   if (node.expression == nullptr) {
@@ -575,18 +514,20 @@ void ASTPrinter::visit(ASTReturnStmt &node) {
     node.expression->accept(*this);
     remove_depth();
   }
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTAssignExpression &node) {
+Value *ASTPrinter::visit(ASTAssignExpression &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "assign-expression" << std::endl;
   add_depth();
   node.var->accept(*this);
   node.expression->accept(*this);
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTSimpleExpression &node) {
+Value *ASTPrinter::visit(ASTSimpleExpression &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "simple-expression";
   if (node.additive_expression_r == nullptr) {
@@ -615,9 +556,10 @@ void ASTPrinter::visit(ASTSimpleExpression &node) {
   if (node.additive_expression_r != nullptr)
     node.additive_expression_r->accept(*this);
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTAdditiveExpression &node) {
+Value *ASTPrinter::visit(ASTAdditiveExpression &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "additive-expression";
   if (node.additive_expression == nullptr) {
@@ -638,9 +580,10 @@ void ASTPrinter::visit(ASTAdditiveExpression &node) {
     node.additive_expression->accept(*this);
   node.term->accept(*this);
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTVar &node) {
+Value *ASTPrinter::visit(ASTVar &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "var: " << node.id;
   if (node.expression != nullptr) {
@@ -648,12 +591,13 @@ void ASTPrinter::visit(ASTVar &node) {
     add_depth();
     node.expression->accept(*this);
     remove_depth();
-    return;
+    return nullptr;
   }
   std::cout << std::endl;
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTTerm &node) {
+Value *ASTPrinter::visit(ASTTerm &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "term";
   if (node.term == nullptr) {
@@ -675,9 +619,10 @@ void ASTPrinter::visit(ASTTerm &node) {
 
   node.factor->accept(*this);
   remove_depth();
+  return nullptr;
 }
 
-void ASTPrinter::visit(ASTCall &node) {
+Value *ASTPrinter::visit(ASTCall &node) {
   _DEBUG_PRINT_N_(depth);
   std::cout << "call: " << node.id << "()" << std::endl;
   add_depth();
@@ -685,4 +630,5 @@ void ASTPrinter::visit(ASTCall &node) {
     arg->accept(*this);
   }
   remove_depth();
+  return nullptr;
 }

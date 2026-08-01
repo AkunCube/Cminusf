@@ -38,8 +38,13 @@ llvm_map_components_to_libnames(
 
 INCLUDE_DIRECTORIES(
     include
+    include/cminusfc
     include/common
+    include/lightir
+    ${LLVM_INCLUDE_DIRS}
 )
+
+add_definitions(${LLVM_DEFINITIONS})
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
@@ -48,3 +53,4 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_BINARY_DIR})
 add_subdirectory(src)
+add_subdirectory(tests)
