@@ -1,0 +1,11 @@
+build/
+.cache/
+debug/
+*.o
+*.a
+*.so
+*.d
+*.elf
+*.bin
+*.hex
+*.map
