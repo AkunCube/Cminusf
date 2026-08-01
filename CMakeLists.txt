@@ -1,6 +1,8 @@
 project(CMINUSF)
 cmake_minimum_required( VERSION 3.4 )
 
+add_compile_definitions(_POSIX_C_SOURCE=200809L)
+
 set(CMAKE_C_FLAGS "${CMAKE_CXX_FLAGS} -std=c99")
 
 SET(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXXFLAGS} -O0 -Wall -g2 -ggdb")
