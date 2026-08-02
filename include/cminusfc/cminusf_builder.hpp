@@ -101,6 +101,12 @@ private:
   virtual Value *visit(ASTTerm &) override final;
   virtual Value *visit(ASTCall &) override final;
 
+  Value *cast_value_to_type(Value *val, Type *target_type);
+  Value *prepare_condition(Value *cond);
+  Value *load_or_decay(Value *val);
+  Value *load_if_scalar(Value *val);
+  void promote_operands(Value *&lhs, Value *&rhs);
+
   std::unique_ptr<IRBuilder> builder;
   Scope scope;
   std::unique_ptr<Module> module;
@@ -109,5 +115,6 @@ private:
     // function that is being built
     Function *func = nullptr;
     // TODO: you should add more fields to store state
+    uint64_t block_counter = 0;
   } context;
 };
