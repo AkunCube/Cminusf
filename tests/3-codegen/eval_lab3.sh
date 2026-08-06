@@ -1,6 +1,6 @@
 #!/bin/bash
 
-project_dir=$(realpath ../../../)
+project_dir=$(realpath "$(dirname "$0")/../..")
 io_dir=$(realpath "$project_dir"/src/io)
 output_dir=output
 suffix=cminus

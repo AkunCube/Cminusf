@@ -36,6 +36,7 @@ private:
   void load_from_stack_to_greg(Value *, const Reg &);
 
   // 向寄存器中加载立即数
+  void load_int32(int32_t, const Reg &);
   void load_large_int32(int32_t, const Reg &);
   void load_large_int64(int64_t, const Reg &);
   void load_float_imm(float, const FReg &);
@@ -63,6 +64,10 @@ private:
 
   static std::string label_name(BasicBlock *bb) {
     return "." + bb->get_parent()->get_name() + "_" + bb->get_name();
+  }
+
+  static std::string exit_label_name(Function *func) {
+    return "." + func->get_name() + "_exit";
   }
 
   struct {
