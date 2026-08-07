@@ -169,18 +169,15 @@ void CodeGen::store_from_freg(Value *val, const FReg &r) {
 
 void CodeGen::gen_prologue() {
   // 寄存器备份及栈帧设置
+  append_inst("st.d $ra, $sp, -8");
+  append_inst("st.d $fp, $sp, -16");
+  append_inst("addi.d $fp, $sp, 0");
   if (IS_IMM_12(-static_cast<int>(context.frame_size))) {
-    append_inst("st.d $ra, $sp, -8");
-    append_inst("st.d $fp, $sp, -16");
-    append_inst("addi.d $fp, $sp, 0");
     append_inst("addi.d $sp, $sp, " +
                 std::to_string(-static_cast<int>(context.frame_size)));
   } else {
     load_large_int64(context.frame_size, Reg::t(0));
-    append_inst("st.d $ra, $sp, -8");
-    append_inst("st.d $fp, $sp, -16");
     append_inst("sub.d $sp, $sp, $t0");
-    append_inst("add.d $fp, $sp, $t0");
   }
 
   // 将函数参数转移到栈帧上
