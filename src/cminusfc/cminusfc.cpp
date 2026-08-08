@@ -3,6 +3,7 @@
 #include "Mem2Reg.hpp"
 #include "Module.hpp"
 #include "PassManager.hpp"
+#include "UnreachableBlockElim.hpp"
 #include "cminusf_builder.hpp"
 
 #include <filesystem>
@@ -51,6 +52,7 @@ int main(int argc, char **argv) {
   }
 
   PassManager PM(m.get());
+  PM.add_pass<UnreachableBlockElim>();
 
   if (config.mem2reg) {
     PM.add_pass<Mem2Reg>();

@@ -4,4 +4,5 @@ add_library(
     Mem2Reg.cpp
     FuncInfo.cpp
     DeadCode.cpp
+    UnreachableBlockElim.cpp
 )
