@@ -203,6 +203,7 @@ void CodeGen::gen_epilogue() {
 void CodeGen::gen_ret() {
   if (context.inst->get_num_operand() == 0) {
     load_int32(0, Reg::a(0));
+    append_inst("b " + exit_label_name(context.func));
     return;
   }
 
