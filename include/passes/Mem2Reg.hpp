@@ -1,18 +1,29 @@
 #pragma once
 
+#include <memory>
+
 #include "Dominators.hpp"
 #include "Instruction.hpp"
 #include "Value.hpp"
-
-#include <map>
-#include <memory>
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 
 class Mem2Reg : public Pass {
 private:
+  using PhiAllocaPair = std::pair<PhiInst *, AllocaInst *>;
   Function *func_;
   std::unique_ptr<Dominators> dominators_;
-
-  // TODO 添加需要的变量
+  /// Allocations in the current function that can be safely promoted to SSA.
+  llvm::DenseSet<AllocaInst *> promotable_allocas_;
+  /// Promoted loads and stores to erase after renaming finishes.
+  llvm::SmallVector<Instruction *> instructions_to_delete_;
+  /// Maps each phi instruction to the alloca (memory variable) it belongs to.
+  llvm::DenseMap<PhiInst *, AllocaInst *> phi_to_alloca_;
+  /// Per-alloca stack holding the current reaching definitions.
+  llvm::DenseMap<AllocaInst *, llvm::SmallVector<Value *>> var_stack_;
+  /// Phis inserted at the entry of each block, grouped by their alloca.
+  llvm::DenseMap<BasicBlock *, llvm::DenseSet<PhiAllocaPair>> block_phi_map_;
 
 public:
   Mem2Reg(Module *m) : Pass(m) {}
@@ -20,8 +31,12 @@ public:
 
   void run() override;
 
+private:
+  void reset_function_state();
+  void collect_promotable_allocas();
+  void delete_promoted_memory_instructions();
   void generate_phi();
-  void rename(BasicBlock *bb);
+  void rename(BasicBlock *block);
 
   static inline bool is_global_variable(Value *l_val) {
     return dynamic_cast<GlobalVariable *>(l_val) != nullptr;
