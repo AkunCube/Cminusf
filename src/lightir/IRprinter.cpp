@@ -308,7 +308,7 @@ std::string PhiInst::print() {
   instr_ir += " = ";
   instr_ir += get_instr_op_name();
   instr_ir += " ";
-  instr_ir += this->get_operand(0)->get_type()->print();
+  instr_ir += this->get_type()->print();
   instr_ir += " ";
   for (unsigned i = 0; i < this->get_num_operand() / 2; i++) {
     if (i > 0)
@@ -321,12 +321,16 @@ std::string PhiInst::print() {
   }
   if (this->get_num_operand() / 2 <
       this->get_parent()->get_pre_basic_blocks().size()) {
+    bool first = this->get_num_operand() / 2 == 0;
     for (auto pre_bb : this->get_parent()->get_pre_basic_blocks()) {
       if (std::find(this->get_operands().begin(), this->get_operands().end(),
                     static_cast<Value *>(pre_bb)) ==
           this->get_operands().end()) {
         // find a pre_bb is not in phi
-        instr_ir += ", [ undef, " + print_as_op(pre_bb, false) + " ]";
+        if (!first)
+          instr_ir += ", ";
+        first = false;
+        instr_ir += "[ undef, " + print_as_op(pre_bb, false) + " ]";
       }
     }
   }
