@@ -3,6 +3,7 @@
 #include "ASMInstruction.hpp"
 #include "Module.hpp"
 #include "Register.hpp"
+#include "llvm/ADT/SmallVector.h"
 
 class CodeGen {
 public:
@@ -28,22 +29,36 @@ public:
   }
 
 private:
+  using PhiCopy = std::pair<Value *, PhiInst *>;
+
   void allocate();
 
-  // 向寄存器中装载数据
-  void load_to_greg(Value *, const Reg &);
-  void load_to_freg(Value *, const FReg &);
-  void load_from_stack_to_greg(Value *, const Reg &);
-
-  // 向寄存器中加载立即数
+  // Load immediate values.
   void load_int32(int32_t, const Reg &);
   void load_large_int32(int32_t, const Reg &);
   void load_large_int64(int64_t, const Reg &);
   void load_float_imm(float, const FReg &);
 
-  // 将寄存器中的数据保存回栈上
+  // Load values into registers.
+  void load_to_greg(Value *, const Reg &);
+  void load_to_freg(Value *, const FReg &);
+
+  // Load values from stack slots.
+  void load_from_stack_to_greg(Value *, const Reg &);
+  void load_from_stack_to_greg(Type *, int, const Reg &);
+  void load_from_stack_to_freg(int, const FReg &);
+
+  // Store register values into Value-owned stack slots.
   void store_from_greg(Value *, const Reg &);
   void store_from_freg(Value *, const FReg &);
+
+  // Store register values into explicit stack slots.
+  void store_to_stack_from_greg(Type *, int, const Reg &);
+  void store_to_stack_from_freg(int, const FReg &);
+
+  // Collect and emit parallel phi copies on CFG edges.
+  llvm::SmallVector<PhiCopy> collect_phi_copies(BasicBlock *, BasicBlock *);
+  void emit_parallel_phi_copies(BasicBlock *, BasicBlock *);
 
   void gen_prologue();
   void gen_ret();
@@ -71,18 +86,22 @@ private:
   }
 
   struct {
-    /* 随着ir遍历设置 */
-    Function *func{nullptr};    // 当前函数
-    Instruction *inst{nullptr}; // 当前指令
-    /* 在allocate()中设置 */
-    unsigned frame_size{0}; // 当前函数的栈帧大小
-    std::unordered_map<Value *, int> offset_map{}; // 指针相对 fp 的偏移
+    /* Updated while traversing the IR. */
+    Function *func{nullptr};    // Current function.
+    Instruction *inst{nullptr}; // Current instruction.
+    /* Initialized by allocate(). */
+    unsigned frame_size{0};                        // Current frame size.
+    std::unordered_map<Value *, int> offset_map{}; // Offset relative to fp.
+    std::unordered_map<PhiInst *, int> phi_temp_offset_map{};
+    unsigned next_phi_edge_id{0};
 
     void clear() {
       func = nullptr;
       inst = nullptr;
       frame_size = 0;
       offset_map.clear();
+      phi_temp_offset_map.clear();
+      next_phi_edge_id = 0;
     }
 
   } context;

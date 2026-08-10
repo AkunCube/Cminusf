@@ -24,6 +24,12 @@ void CodeGen::allocate() {
         auto size = instr.get_type()->get_size();
         offset = ALIGN(offset + size, size);
         context.offset_map[&instr] = -static_cast<int>(offset);
+
+        if (instr.is_phi()) {
+          offset = ALIGN(offset + size, size);
+          context.phi_temp_offset_map[static_cast<PhiInst *>(&instr)] =
+              -static_cast<int>(offset);
+        }
       }
       // alloca 的副作用：分配额外空间
       if (instr.is_alloca()) {
@@ -36,19 +42,6 @@ void CodeGen::allocate() {
 
   // 分配栈空间，需要是 16 的整数倍
   context.frame_size = ALIGN(offset, PROLOGUE_ALIGN);
-}
-
-void CodeGen::load_to_greg(Value *val, const Reg &reg) {
-  assert(val->get_type()->is_integer_type() ||
-         val->get_type()->is_pointer_type());
-
-  if (auto *constant = dynamic_cast<ConstantInt *>(val)) {
-    load_int32(constant->get_value(), reg);
-  } else if (auto *global = dynamic_cast<GlobalVariable *>(val)) {
-    append_inst(LOAD_ADDR, {reg.print(), global->get_name()});
-  } else {
-    load_from_stack_to_greg(val, reg);
-  }
 }
 
 void CodeGen::load_int32(int32_t val, const Reg &reg) {
@@ -78,92 +71,182 @@ void CodeGen::load_large_int64(int64_t val, const Reg &reg) {
               {reg.print(), reg.print(), std::to_string(high_32_high_12)});
 }
 
+void CodeGen::load_to_greg(Value *val, const Reg &reg) {
+  assert(val->get_type()->is_integer_type() ||
+         val->get_type()->is_pointer_type());
+
+  if (dynamic_cast<UndefValue *>(val)) {
+    load_int32(0, reg);
+  } else if (auto *constant = dynamic_cast<ConstantInt *>(val)) {
+    load_int32(constant->get_value(), reg);
+  } else if (auto *global = dynamic_cast<GlobalVariable *>(val)) {
+    append_inst(LOAD_ADDR, {reg.print(), global->get_name()});
+  } else {
+    load_from_stack_to_greg(val, reg);
+  }
+}
+
+void CodeGen::load_float_imm(float val, const FReg &reg) {
+  int32_t bytes = *reinterpret_cast<int32_t *>(&val);
+  load_large_int32(bytes, Reg::t(8));
+  append_inst(GR2FR WORD, {reg.print(), Reg::t(8).print()});
+}
+
+void CodeGen::load_to_freg(Value *val, const FReg &freg) {
+  assert(val->get_type()->is_float_type());
+  if (dynamic_cast<UndefValue *>(val)) {
+    load_float_imm(0.0F, freg);
+  } else if (auto *constant = dynamic_cast<ConstantFP *>(val)) {
+    float val = constant->get_value();
+    load_float_imm(val, freg);
+  } else {
+    load_from_stack_to_freg(context.offset_map.at(val), freg);
+  }
+}
+
 void CodeGen::load_from_stack_to_greg(Value *val, const Reg &reg) {
-  auto offset = context.offset_map.at(val);
+  load_from_stack_to_greg(val->get_type(), context.offset_map.at(val), reg);
+}
+
+void CodeGen::load_from_stack_to_greg(Type *type, int offset, const Reg &reg) {
   auto offset_str = std::to_string(offset);
-  auto *type = val->get_type();
   if (IS_IMM_12(offset)) {
     if (type->is_int1_type()) {
       append_inst(LOAD BYTE, {reg.print(), "$fp", offset_str});
     } else if (type->is_int32_type()) {
       append_inst(LOAD WORD, {reg.print(), "$fp", offset_str});
-    } else { // Pointer
+    } else {
+      assert(type->is_pointer_type());
       append_inst(LOAD DOUBLE, {reg.print(), "$fp", offset_str});
     }
+    return;
+  }
+
+  auto addr = Reg::t(8);
+  load_large_int64(offset, addr);
+  append_inst(ADD DOUBLE, {addr.print(), "$fp", addr.print()});
+  if (type->is_int1_type()) {
+    append_inst(LOAD BYTE, {reg.print(), addr.print(), "0"});
+  } else if (type->is_int32_type()) {
+    append_inst(LOAD WORD, {reg.print(), addr.print(), "0"});
   } else {
-    load_large_int64(offset, reg);
-    append_inst(ADD DOUBLE, {reg.print(), "$fp", reg.print()});
-    if (type->is_int1_type()) {
-      append_inst(LOAD BYTE, {reg.print(), reg.print(), "0"});
-    } else if (type->is_int32_type()) {
-      append_inst(LOAD WORD, {reg.print(), reg.print(), "0"});
-    } else { // Pointer
-      append_inst(LOAD DOUBLE, {reg.print(), reg.print(), "0"});
-    }
+    assert(type->is_pointer_type());
+    append_inst(LOAD DOUBLE, {reg.print(), addr.print(), "0"});
   }
 }
 
+void CodeGen::load_from_stack_to_freg(int offset, const FReg &reg) {
+  if (IS_IMM_12(offset)) {
+    append_inst(FLOAD SINGLE, {reg.print(), "$fp", std::to_string(offset)});
+    return;
+  }
+
+  auto addr = Reg::t(8);
+  load_large_int64(offset, addr);
+  append_inst(ADD DOUBLE, {addr.print(), "$fp", addr.print()});
+  append_inst(FLOAD SINGLE, {reg.print(), addr.print(), "0"});
+}
+
 void CodeGen::store_from_greg(Value *val, const Reg &reg) {
-  auto offset = context.offset_map.at(val);
+  store_to_stack_from_greg(val->get_type(), context.offset_map.at(val), reg);
+}
+
+void CodeGen::store_from_freg(Value *val, const FReg &r) {
+  store_to_stack_from_freg(context.offset_map.at(val), r);
+}
+
+void CodeGen::store_to_stack_from_greg(Type *type, int offset, const Reg &reg) {
   auto offset_str = std::to_string(offset);
-  auto *type = val->get_type();
   if (IS_IMM_12(offset)) {
     if (type->is_int1_type()) {
       append_inst(STORE BYTE, {reg.print(), "$fp", offset_str});
     } else if (type->is_int32_type()) {
       append_inst(STORE WORD, {reg.print(), "$fp", offset_str});
-    } else { // Pointer
+    } else {
+      assert(type->is_pointer_type());
       append_inst(STORE DOUBLE, {reg.print(), "$fp", offset_str});
     }
+    return;
+  }
+
+  auto addr = Reg::t(8);
+  load_large_int64(offset, addr);
+  append_inst(ADD DOUBLE, {addr.print(), "$fp", addr.print()});
+  if (type->is_int1_type()) {
+    append_inst(STORE BYTE, {reg.print(), addr.print(), "0"});
+  } else if (type->is_int32_type()) {
+    append_inst(STORE WORD, {reg.print(), addr.print(), "0"});
   } else {
-    auto addr = Reg::t(8);
-    load_large_int64(offset, addr);
-    append_inst(ADD DOUBLE, {addr.print(), "$fp", addr.print()});
-    if (type->is_int1_type()) {
-      append_inst(STORE BYTE, {reg.print(), addr.print(), "0"});
-    } else if (type->is_int32_type()) {
-      append_inst(STORE WORD, {reg.print(), addr.print(), "0"});
-    } else { // Pointer
-      append_inst(STORE DOUBLE, {reg.print(), addr.print(), "0"});
-    }
+    assert(type->is_pointer_type());
+    append_inst(STORE DOUBLE, {reg.print(), addr.print(), "0"});
   }
 }
 
-void CodeGen::load_to_freg(Value *val, const FReg &freg) {
-  assert(val->get_type()->is_float_type());
-  if (auto *constant = dynamic_cast<ConstantFP *>(val)) {
-    float val = constant->get_value();
-    load_float_imm(val, freg);
-  } else {
-    auto offset = context.offset_map.at(val);
-    auto offset_str = std::to_string(offset);
-    if (IS_IMM_12(offset)) {
-      append_inst(FLOAD SINGLE, {freg.print(), "$fp", offset_str});
-    } else {
-      auto addr = Reg::t(8);
-      load_large_int64(offset, addr);
-      append_inst(ADD DOUBLE, {addr.print(), "$fp", addr.print()});
-      append_inst(FLOAD SINGLE, {freg.print(), addr.print(), "0"});
-    }
-  }
-}
-
-void CodeGen::load_float_imm(float val, const FReg &r) {
-  int32_t bytes = *reinterpret_cast<int32_t *>(&val);
-  load_large_int32(bytes, Reg::t(8));
-  append_inst(GR2FR WORD, {r.print(), Reg::t(8).print()});
-}
-
-void CodeGen::store_from_freg(Value *val, const FReg &r) {
-  auto offset = context.offset_map.at(val);
+void CodeGen::store_to_stack_from_freg(int offset, const FReg &reg) {
   if (IS_IMM_12(offset)) {
-    auto offset_str = std::to_string(offset);
-    append_inst(FSTORE SINGLE, {r.print(), "$fp", offset_str});
-  } else {
-    auto addr = Reg::t(8);
-    load_large_int64(offset, addr);
-    append_inst(ADD DOUBLE, {addr.print(), "$fp", addr.print()});
-    append_inst(FSTORE SINGLE, {r.print(), addr.print(), "0"});
+    append_inst(FSTORE SINGLE, {reg.print(), "$fp", std::to_string(offset)});
+    return;
+  }
+
+  auto addr = Reg::t(8);
+  load_large_int64(offset, addr);
+  append_inst(ADD DOUBLE, {addr.print(), "$fp", addr.print()});
+  append_inst(FSTORE SINGLE, {reg.print(), addr.print(), "0"});
+}
+
+llvm::SmallVector<CodeGen::PhiCopy>
+CodeGen::collect_phi_copies(BasicBlock *pred, BasicBlock *succ) {
+  llvm::SmallVector<PhiCopy> copies;
+  for (Instruction &inst : succ->get_instructions()) {
+    if (!inst.is_phi()) {
+      break;
+    }
+
+    auto *phi = static_cast<PhiInst *>(&inst);
+    assert(phi->get_num_operand() % 2 == 0 && "Malformed phi operands");
+    bool found_incoming = false;
+    for (unsigned i = 0; i < phi->get_num_operand(); i += 2) {
+      if (phi->get_operand(i + 1) != pred) {
+        continue;
+      }
+      assert(!found_incoming && "Duplicate phi incoming block");
+      Value *source = phi->get_operand(i);
+      assert(source->get_type() == phi->get_type() &&
+             "Phi incoming value has the wrong type");
+      copies.emplace_back(source, phi);
+      found_incoming = true;
+    }
+    assert(found_incoming && "Missing phi value for CFG predecessor");
+  }
+  return copies;
+}
+
+void CodeGen::emit_parallel_phi_copies(BasicBlock *pred, BasicBlock *succ) {
+  auto copies = collect_phi_copies(pred, succ);
+
+  // Snapshot every source before overwriting any phi destination.
+  for (auto [source, phi] : copies) {
+    int temp_offset = context.phi_temp_offset_map.at(phi);
+    if (phi->get_type()->is_float_type()) {
+      load_to_freg(source, FReg::ft(0));
+      store_to_stack_from_freg(temp_offset, FReg::ft(0));
+    } else {
+      load_to_greg(source, Reg::t(0));
+      store_to_stack_from_greg(phi->get_type(), temp_offset, Reg::t(0));
+    }
+  }
+
+  for (auto [source, phi] : copies) {
+    (void)source;
+    int temp_offset = context.phi_temp_offset_map.at(phi);
+    int destination_offset = context.offset_map.at(phi);
+    if (phi->get_type()->is_float_type()) {
+      load_from_stack_to_freg(temp_offset, FReg::ft(0));
+      store_to_stack_from_freg(destination_offset, FReg::ft(0));
+    } else {
+      load_from_stack_to_greg(phi->get_type(), temp_offset, Reg::t(0));
+      store_to_stack_from_greg(phi->get_type(), destination_offset, Reg::t(0));
+    }
   }
 }
 
@@ -217,17 +300,28 @@ void CodeGen::gen_ret() {
 }
 
 void CodeGen::gen_br() {
-  auto *branchInst = static_cast<BranchInst *>(context.inst);
-  if (branchInst->is_cond_br()) {
-    load_to_greg(branchInst->get_operand(0), Reg::t(0));
-    auto *truebb = static_cast<BasicBlock *>(branchInst->get_operand(1));
-    auto *flasebb = static_cast<BasicBlock *>(branchInst->get_operand(2));
-    append_inst("bnez $t0, " + label_name(truebb));
-    append_inst("b " + label_name(flasebb));
-  } else {
-    auto *branchbb = static_cast<BasicBlock *>(branchInst->get_operand(0));
-    append_inst("b " + label_name(branchbb));
+  auto *branch = static_cast<BranchInst *>(context.inst);
+  auto *pred = branch->get_parent();
+  if (!branch->is_cond_br()) {
+    auto *succ = static_cast<BasicBlock *>(branch->get_operand(0));
+    emit_parallel_phi_copies(pred, succ);
+    append_inst("b " + label_name(succ));
+    return;
   }
+
+  load_to_greg(branch->get_operand(0), Reg::t(0));
+  auto *true_bb = static_cast<BasicBlock *>(branch->get_operand(1));
+  auto *false_bb = static_cast<BasicBlock *>(branch->get_operand(2));
+  std::string true_edge_label = "." + context.func->get_name() + "_phi_edge_" +
+                                std::to_string(context.next_phi_edge_id++);
+
+  append_inst("bnez $t0, " + true_edge_label);
+  emit_parallel_phi_copies(pred, false_bb);
+  append_inst("b " + label_name(false_bb));
+
+  append_inst(true_edge_label, ASMInstruction::Label);
+  emit_parallel_phi_copies(pred, true_bb);
+  append_inst("b " + label_name(true_bb));
 }
 
 void CodeGen::gen_binary() {
@@ -574,8 +668,6 @@ void CodeGen::run() {
               gen_fcmp();
               break;
             case Instruction::phi:
-              throw unreachable_error{
-                  "There is no requirement for phi in lab3!"};
               break;
             case Instruction::call:
               gen_call();
