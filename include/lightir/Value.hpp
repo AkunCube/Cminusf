@@ -26,7 +26,7 @@ public:
   void remove_use(User *user, unsigned arg_no);
 
   void replace_all_use_with(Value *new_val);
-  void replace_use_with_if(Value *new_val, std::function<bool(Use)> pred);
+  void replace_use_with_if(Value *new_val, std::function<bool(Use *)> pred);
 
   virtual std::string print() = 0;
 

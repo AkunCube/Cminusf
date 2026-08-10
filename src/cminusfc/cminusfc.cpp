@@ -1,5 +1,8 @@
 #include "CodeGen.hpp"
+#include "ConstPropagation.hpp"
 #include "DeadCode.hpp"
+#include "GVN.hpp"
+#include "LoopInvHoist.hpp"
 #include "Mem2Reg.hpp"
 #include "Module.hpp"
 #include "PassManager.hpp"
@@ -21,7 +24,11 @@ struct Config {
 
   bool emitllvm{false};
   bool emitasm{false};
+  bool dump_json{false};
   bool mem2reg{false};
+  bool const_prop{false};
+  bool gvn{false};
+  bool loop_inv_hoist{false};
 
   Config(int argc, char **argv) : argc(argc), argv(argv) {
     parse_cmd_line();
@@ -58,6 +65,18 @@ int main(int argc, char **argv) {
     PM.add_pass<Mem2Reg>();
     PM.add_pass<DeadCode>();
   }
+  if (config.const_prop) {
+    PM.add_pass<ConstPropagation>();
+    PM.add_pass<DeadCode>();
+  }
+  if (config.gvn) {
+    PM.add_pass<GVN>(config.dump_json);
+    PM.add_pass<DeadCode>();
+  }
+  if (config.loop_inv_hoist) {
+    PM.add_pass<LoopInvHoist>();
+    PM.add_pass<DeadCode>();
+  }
   PM.run();
 
   std::ofstream output_stream(config.output_file);
@@ -91,8 +110,16 @@ void Config::parse_cmd_line() {
       emitllvm = true;
     } else if (argv[i] == "-S"s) {
       emitasm = true;
+    } else if (argv[i] == "-dump-json"s) {
+      dump_json = true;
     } else if (argv[i] == "-mem2reg"s) {
       mem2reg = true;
+    } else if (argv[i] == "-const-prop"s) {
+      const_prop = true;
+    } else if (argv[i] == "-gvn"s) {
+      gvn = true;
+    } else if (argv[i] == "-loop-inv-hoist"s) {
+      loop_inv_hoist = true;
     } else {
       if (input_file.empty()) {
         input_file = argv[i];
@@ -117,6 +144,9 @@ void Config::check() {
   if (not emitllvm and not emitasm) {
     print_err("not supported: generate executable file directly");
   }
+  if (gvn and not mem2reg) {
+    print_err("enabling GVN without mem2reg");
+  }
   if (output_file.empty()) {
     output_file = input_file.stem();
     if (emitllvm) {
@@ -129,7 +159,8 @@ void Config::check() {
 
 void Config::print_help() const {
   std::cout << "Usage: " << exe_name
-            << " [-h|--help] [-o <target-file>] [-mem2reg] [-emit-llvm] [-S] "
+            << " [-h|--help] [-o <target-file>] [-emit-llvm] [-S] [-dump-json] "
+               "[-mem2reg] [-const-prop] [-gvn] [-loop-inv-hoist] "
                "<input-file>"
             << std::endl;
   exit(0);

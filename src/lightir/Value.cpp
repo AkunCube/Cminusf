@@ -31,12 +31,12 @@ void Value::replace_all_use_with(Value *new_val) {
 }
 
 void Value::replace_use_with_if(Value *new_val,
-                                std::function<bool(Use)> should_replace) {
+                                std::function<bool(Use *)> should_replace) {
   if (this == new_val)
     return;
   for (auto iter = use_list_.begin(); iter != use_list_.end();) {
     auto use = *iter++;
-    if (not should_replace(use))
+    if (not should_replace(&use))
       continue;
     use.val_->set_operand(use.arg_no_, new_val);
   }

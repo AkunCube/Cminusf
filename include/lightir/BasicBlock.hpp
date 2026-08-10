@@ -40,6 +40,7 @@ public:
   void add_instruction(Instruction *instr);
   void add_instr_begin(Instruction *instr) { instr_list_.push_front(instr); }
   void erase_instr(Instruction *instr) { instr_list_.erase(instr); }
+  void remove_instr(Instruction *instr) { instr_list_.remove(instr); }
 
   llvm::ilist<Instruction> &get_instructions() { return instr_list_; }
   bool empty() const { return instr_list_.empty(); }
