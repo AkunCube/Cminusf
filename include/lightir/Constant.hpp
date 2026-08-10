@@ -51,6 +51,15 @@ public:
   virtual std::string print() override;
 };
 
+class UndefValue : public Constant {
+private:
+  UndefValue(Type *ty) : Constant(ty, "") {}
+
+public:
+  static UndefValue *get(Type *ty, Module *m);
+  virtual std::string print() override;
+};
+
 class ConstantFP : public Constant {
 private:
   float val_;

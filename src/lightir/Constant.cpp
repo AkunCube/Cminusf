@@ -25,6 +25,7 @@ static std::unordered_map<std::pair<float, Module *>,
                           std::unique_ptr<ConstantFP>, pair_hash>
     cached_float;
 static std::unordered_map<Type *, std::unique_ptr<ConstantZero>> cached_zero;
+static std::unordered_map<Type *, std::unique_ptr<UndefValue>> cached_undef;
 
 ConstantInt *ConstantInt::get(int val, Module *m) {
   if (cached_int.find(std::make_pair(val, m)) != cached_int.end())
@@ -113,3 +114,11 @@ ConstantZero *ConstantZero::get(Type *ty, Module *m) {
 }
 
 std::string ConstantZero::print() { return "zeroinitializer"; }
+
+UndefValue *UndefValue::get(Type *ty, Module *m) {
+  if (not cached_undef[ty])
+    cached_undef[ty] = std::unique_ptr<UndefValue>(new UndefValue(ty));
+  return cached_undef[ty].get();
+}
+
+std::string UndefValue::print() { return "undef"; }
