@@ -15,7 +15,7 @@ static void remove_dead_predecessor_from_phis(BasicBlock *succ,
                                               BasicBlock *dead_block) {
   for (auto &inst : succ->get_instructions()) {
     if (!inst.is_phi()) {
-      continue;
+      break;
     }
     auto *phi = static_cast<PhiInst *>(&inst);
     for (unsigned i = 0; i < phi->get_num_operand(); i += 2) {
