@@ -1,218 +1,323 @@
-#include "ConstPropagation.hpp"
+#include <cmath>
+#include <deque>
 
+#include "BasicBlock.hpp"
+#include "ConstPropagation.hpp"
+#include "Constant.hpp"
+#include "Function.hpp"
+#include "GlobalVariable.hpp"
+#include "IRBuilder.hpp"
 #include "Instruction.hpp"
-#include "logging.hpp"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
+
+using namespace llvm;
+
+static Constant *fold_instruction(Instruction *instr, ConstFolder &folder) {
+  // Handle binary integer operations.
+  if (instr->is_add() || instr->is_sub() || instr->is_mul() ||
+      instr->is_div() || instr->is_cmp()) {
+    auto *lhs = dynamic_cast<ConstantInt *>(instr->get_operand(0));
+    auto *rhs = dynamic_cast<ConstantInt *>(instr->get_operand(1));
+    if (lhs && rhs) {
+      return folder.compute(instr->get_instr_type(), lhs, rhs);
+    }
+  }
+
+  // Handle binary floating-point operations.
+  if (instr->is_fadd() || instr->is_fsub() || instr->is_fmul() ||
+      instr->is_fdiv() || instr->is_fcmp()) {
+    auto *lhs = dynamic_cast<ConstantFP *>(instr->get_operand(0));
+    auto *rhs = dynamic_cast<ConstantFP *>(instr->get_operand(1));
+    if (lhs && rhs) {
+      return folder.compute(instr->get_instr_type(), lhs, rhs);
+    }
+  }
+
+  // Handle sitofp (int -> float).
+  if (instr->is_si2fp()) {
+    auto *val = dynamic_cast<ConstantInt *>(instr->get_operand(0));
+    if (val) {
+      return folder.sitofp(val);
+    }
+  }
+
+  // Handle fptosi (float -> int).
+  if (instr->is_fp2si()) {
+    auto *val = dynamic_cast<ConstantFP *>(instr->get_operand(0));
+    if (val) {
+      return folder.fptosi(val);
+    }
+  }
+
+  return nullptr;
+}
+
+// Rewrite conditional branches with constant conditions into unconditional
+// branches, returning the blocks that become unreachable as a result.
+static DenseSet<BasicBlock *> simplify_constant_branches(Function &function) {
+  DenseSet<BasicBlock *> dead_blocks;
+  for (BasicBlock &block : function.get_basic_blocks()) {
+    auto *terminator = dynamic_cast<BranchInst *>(block.get_terminator());
+    if (!terminator || !terminator->is_cond_br()) {
+      continue;
+    }
+    auto *const_cond = dynamic_cast<ConstantInt *>(terminator->get_operand(0));
+    if (!const_cond) {
+      continue;
+    }
+
+    BasicBlock *target_bb = nullptr;
+    BasicBlock *dead_bb = nullptr;
+    if (const_cond->get_value()) {
+      target_bb = static_cast<BasicBlock *>(terminator->get_operand(1));
+      dead_bb = static_cast<BasicBlock *>(terminator->get_operand(2));
+    } else {
+      target_bb = static_cast<BasicBlock *>(terminator->get_operand(2));
+      dead_bb = static_cast<BasicBlock *>(terminator->get_operand(1));
+    }
+
+    // `remove_instr` only unlinks the terminator without running its
+    // destructor, so clean up the CFG edges of the old conditional branch
+    // explicitly while its operands are still intact.
+    for (BasicBlock *succ : {target_bb, dead_bb}) {
+      succ->remove_pre_basic_block(&block);
+      block.remove_succ_basic_block(succ);
+    }
+    terminator->remove_all_operands();
+    block.remove_instr(terminator);
+
+    IRBuilder builder(&block, function.get_parent());
+    builder.create_br(target_bb);
+    dead_blocks.insert(dead_bb);
+  }
+  return dead_blocks;
+}
 
 ConstantInt *ConstFolder::compute(Instruction::OpID op, ConstantInt *value1,
                                   ConstantInt *value2) {
-  int c_value1 = value1->get_value();
-  int c_value2 = value2->get_value();
+  if (!value1 || !value2) {
+    return nullptr;
+  }
+
+  const int c1 = value1->get_value();
+  const int c2 = value2->get_value();
+  int result = 0;
 
   switch (op) {
     case Instruction::add:
-      return ConstantInt::get(c_value1 + c_value2, module_);
+      result = c1 + c2;
       break;
     case Instruction::sub:
-      return ConstantInt::get(c_value1 - c_value2, module_);
+      result = c1 - c2;
       break;
     case Instruction::mul:
-      return ConstantInt::get(c_value1 * c_value2, module_);
+      result = c1 * c2;
       break;
     case Instruction::sdiv:
-      return ConstantInt::get(static_cast<int>(c_value1 / c_value2), module_);
+      if (c2 == 0) {
+        return nullptr;
+      }
+      result = c1 / c2;
       break;
     case Instruction::eq:
-      return ConstantInt::get(c_value1 == c_value2, module_);
-      break;
+      return ConstantInt::get(c1 == c2, module_);
     case Instruction::ne:
-      return ConstantInt::get(c_value1 != c_value2, module_);
-      break;
+      return ConstantInt::get(c1 != c2, module_);
     case Instruction::gt:
-      return ConstantInt::get(c_value1 > c_value2, module_);
-      break;
+      return ConstantInt::get(c1 > c2, module_);
     case Instruction::ge:
-      return ConstantInt::get(c_value1 >= c_value2, module_);
-      break;
+      return ConstantInt::get(c1 >= c2, module_);
     case Instruction::lt:
-      return ConstantInt::get(c_value1 < c_value2, module_);
-      break;
+      return ConstantInt::get(c1 < c2, module_);
     case Instruction::le:
-      return ConstantInt::get(c_value1 <= c_value2, module_);
-      break;
+      return ConstantInt::get(c1 <= c2, module_);
     default:
       return nullptr;
-      break;
   }
+
+  return ConstantInt::get(result, module_);
 }
 
-ConstantFP *ConstFolder::compute(Instruction::OpID op, ConstantFP *value1,
-                                 ConstantFP *value2) {
-  float c_value1 = value1->get_value();
-  float c_value2 = value2->get_value();
+Constant *ConstFolder::compute(Instruction::OpID op, ConstantFP *value1,
+                               ConstantFP *value2) {
+  if (!value1 || !value2) {
+    return nullptr;
+  }
+
+  const float c1 = value1->get_value();
+  const float c2 = value2->get_value();
+  float result = 0.0f;
+
   switch (op) {
     case Instruction::fadd:
-      return ConstantFP::get(c_value1 + c_value2, module_);
+      result = c1 + c2;
       break;
     case Instruction::fsub:
-      return ConstantFP::get(c_value1 - c_value2, module_);
+      result = c1 - c2;
       break;
     case Instruction::fmul:
-      return ConstantFP::get(c_value1 * c_value2, module_);
+      result = c1 * c2;
       break;
     case Instruction::fdiv:
-      return ConstantFP::get(c_value1 / c_value2, module_);
+      if (std::isnan(c1) || std::isnan(c2)) {
+        return nullptr;
+      }
+      result = c1 / c2;
       break;
     case Instruction::feq:
-      return ConstantFP::get(c_value1 == c_value2, module_);
-      break;
+      return ConstantInt::get(c1 == c2, module_);
     case Instruction::fne:
-      return ConstantFP::get(c_value1 != c_value2, module_);
-      break;
+      return ConstantInt::get(c1 != c2, module_);
     case Instruction::fgt:
-      return ConstantFP::get(c_value1 > c_value2, module_);
-      break;
+      return ConstantInt::get(c1 > c2, module_);
     case Instruction::fge:
-      return ConstantFP::get(c_value1 >= c_value2, module_);
-      break;
+      return ConstantInt::get(c1 >= c2, module_);
     case Instruction::flt:
-      return ConstantFP::get(c_value1 < c_value2, module_);
-      break;
+      return ConstantInt::get(c1 < c2, module_);
     case Instruction::fle:
-      return ConstantFP::get(c_value1 <= c_value2, module_);
-      break;
+      return ConstantInt::get(c1 <= c2, module_);
     default:
       return nullptr;
-      break;
   }
-}
-ConstantFP *ConstFolder::compute(Instruction::OpID op, ConstantInt *value1) {
-  int c_value1 = value1->get_value();
 
-  switch (op) {
-    case Instruction::sitofp:
-      return ConstantFP::get((float)c_value1, module_);
-      break;
-
-    default:
-      return nullptr;
-      break;
-  }
+  return ConstantFP::get(result, module_);
 }
 
-ConstantInt *ConstFolder::compute(Instruction::OpID op, ConstantFP *value1) {
-  float c_value1 = value1->get_value();
-  switch (op) {
-    case Instruction::fptosi:
-      return ConstantInt::get(static_cast<int>(c_value1), module_);
-      break;
-
-    default:
-      return nullptr;
-      break;
+ConstantFP *ConstFolder::sitofp(ConstantInt *value) {
+  if (!value) {
+    return nullptr;
   }
+  return ConstantFP::get(static_cast<float>(value->get_value()), module_);
 }
 
-ConstantFP *cast_constantfp(Value *value) {
-  auto constant_fp_ptr = dynamic_cast<ConstantFP *>(value);
-  if (constant_fp_ptr) {
-    return constant_fp_ptr;
+ConstantInt *ConstFolder::fptosi(ConstantFP *value) {
+  if (!value) {
+    return nullptr;
   }
-  return nullptr;
-}
-ConstantInt *cast_constantint(Value *value) {
-  auto constant_int_ptr = dynamic_cast<ConstantInt *>(value);
-  if (constant_int_ptr) {
-    return constant_int_ptr;
+
+  const double val = static_cast<double>(value->get_value());
+  if (val > std::numeric_limits<int>::max() ||
+      val < std::numeric_limits<int>::min() || std::isnan(val)) {
+    return nullptr;
   }
-  return nullptr;
+  return ConstantInt::get(static_cast<int>(val), module_);
 }
 
 void ConstPropagation::run() {
-  for (auto &func : m_->get_functions()) {
-
-    for (auto &bb : func.get_basic_blocks()) {
-      wait_delete.clear();
-
-      for (auto &instr : bb.get_instructions()) {
-        // clear glbalvar_def map
-
-        if (instr.is_add() || instr.is_sub() || instr.is_mul() ||
-            instr.is_div()) {
-          auto value1 = cast_constantint(instr.get_operand(0));
-          auto value2 = cast_constantint(instr.get_operand(1));
-          if (value1 && value2) {
-            auto fold_const =
-                folder->compute(instr.get_instr_type(), value1, value2);
-
-            instr.replace_all_use_with(fold_const);
-            wait_delete.push_back(&instr);
-          }
-        }
-        // TODO: fold other type of expression
-      }
-      globalvar_def.clear();
-      for (auto instr : wait_delete) {
-        bb.remove_instr(instr);
-      }
+  for (Function &function : m_->get_functions()) {
+    if (function.is_declaration()) {
+      continue;
     }
-  }
-
-  for (auto &func : m_->get_functions()) {
-    for (auto &bb : func.get_basic_blocks()) {
-      builder->set_insert_point(&bb);
-      // TODO: check if conditional branch's condition is constant
-    }
-    for (auto bb : delete_bb) {
-      // delete unuseful basic block
-      // func.remove(bb);
-      clear_blocks_recs(bb);
-    }
-    delete_bb.clear();
+    run_on_function(function);
   }
 }
 
-bool ConstPropagation::is_entry(BasicBlock *bb) {
-  // TODO
-  return false;
+void ConstPropagation::run_on_function(Function &function) {
+  for (BasicBlock &block : function.get_basic_blocks()) {
+    run_on_basic_block(block);
+  }
+  simplify_control_flow(function);
 }
 
-void ConstPropagation::clear_blocks_recs(BasicBlock *start_bb) {
-  auto func = start_bb->get_parent();
-  if (func == nullptr) {
-    LOG(ERROR) << "basic block-" << start_bb->get_name()
-               << " has no parent function";
-  } else {
-    auto prev_bb = start_bb->get_pre_basic_blocks();
-    // start_bb has no previous bb and is not the entry of parent function
-    if (prev_bb.size() == 0 && !is_entry(start_bb)) {
-      func->remove(start_bb);
-      auto succ_bb = start_bb->get_succ_basic_blocks();
-      for (auto each_succ_bb : succ_bb) {
-        for (auto &instr1 : each_succ_bb->get_instructions()) {
-          auto instr = &instr1;
-          if (instr->is_phi()) {
-            LOG(DEBUG) << "Find a PHI instruction in the sucess node of "
-                          "useless branch";
-            for (int i = 1; i < instr->get_num_operand(); i += 2) {
-              if (instr->get_operand(i) == start_bb &&
-                  start_bb->get_pre_basic_blocks().size() <= 0) {
-                LOG(DEBUG) << "remove unuseful phi branch in the index of "
-                           << i - 1 << " and " << i;
+void ConstPropagation::run_on_basic_block(BasicBlock &block) {
+  GlobalConstantMap known_constants;
+  for (Instruction &instr :
+       llvm::make_early_inc_range(block.get_instructions())) {
+    Constant *replacement =
+        try_propagate_global_constant(&instr, known_constants);
+    if (!replacement) {
+      replacement = fold_instruction(&instr, folder);
+    }
+    if (!replacement) {
+      continue;
+    }
+    instr.replace_all_use_with(replacement);
+    block.remove_instr(&instr);
+  }
+}
 
-                instr->remove_operand(i - 1);
-                instr->remove_operand(i - 1);
-              }
-            }
-            int operands_num_phi = instr->get_num_operand();
-            if (operands_num_phi == 2) {
-              auto value = instr->get_operand(0);
-              instr->replace_all_use_with(value);
-              each_succ_bb->remove_instr(instr);
-            }
+void ConstPropagation::simplify_control_flow(Function &function) {
+  DenseSet<BasicBlock *> dead_blocks = simplify_constant_branches(function);
+  if (dead_blocks.empty()) {
+    return;
+  }
+
+  std::deque<BasicBlock *> worklist(dead_blocks.begin(), dead_blocks.end());
+  DenseSet<BasicBlock *> removed_blocks;
+  while (!worklist.empty()) {
+    BasicBlock *cur = worklist.front();
+    worklist.pop_front();
+
+    if (cur == function.get_entry_block() ||
+        !cur->get_pre_basic_blocks().empty()) {
+      continue;
+    }
+
+    if (!removed_blocks.insert(cur).second) {
+      continue;
+    }
+
+    for (BasicBlock *succ : cur->get_succ_basic_blocks()) {
+      for (Instruction &instr :
+           llvm::make_early_inc_range(succ->get_instructions())) {
+        if (!instr.is_phi()) {
+          break;
+        }
+
+        // Drop the incoming value coming from the removed predecessor.
+        for (unsigned i = 0; i < instr.get_num_operand(); i += 2) {
+          if (instr.get_operand(i + 1) == cur) {
+            instr.remove_operand(i);
+            instr.remove_operand(i);
+            break;
           }
         }
-        clear_blocks_recs(each_succ_bb);
+
+        // A phi with a single remaining incoming value can be folded away.
+        if (instr.get_num_operand() == 2) {
+          instr.replace_all_use_with(instr.get_operand(0));
+          succ->remove_instr(&instr);
+        }
       }
+      worklist.push_back(succ);
+    }
+
+    function.remove(cur);
+  }
+}
+
+Constant *ConstPropagation::try_propagate_global_constant(
+    Instruction *instr, GlobalConstantMap &known_constants) {
+  if (dynamic_cast<CallInst *>(instr)) {
+    // A call may write to any global, so invalidate the known constants.
+    known_constants.clear();
+    return nullptr;
+  }
+
+  if (auto *load = dynamic_cast<LoadInst *>(instr)) {
+    auto *global_var = dynamic_cast<GlobalVariable *>(load->get_lval());
+    if (!global_var) {
+      return nullptr;
+    }
+    if (auto it = known_constants.find(global_var);
+        it != known_constants.end()) {
+      return it->getSecond();
+    }
+    return nullptr;
+  }
+
+  if (auto *store = dynamic_cast<StoreInst *>(instr)) {
+    auto *global_var = dynamic_cast<GlobalVariable *>(store->get_lval());
+    if (!global_var) {
+      return nullptr;
+    }
+    if (auto const_var = dynamic_cast<Constant *>(store->get_rval())) {
+      known_constants[global_var] = const_var;
+    } else {
+      // A non-constant store overwrites the global; drop any cached value.
+      known_constants.erase(global_var);
     }
   }
+  return nullptr;
 }
