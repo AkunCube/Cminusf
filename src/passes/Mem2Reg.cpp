@@ -120,11 +120,6 @@ void Mem2Reg::generate_phi() {
 
   // Place phis at the iterated dominance frontier of the defining blocks.
   for (auto &[alloca, def_blocks] : alloca_def_blocks) {
-    // A variable defined in a single block needs no phi (semi-pruned SSA).
-    if (def_blocks.size() < 2) {
-      continue;
-    }
-
     std::deque<BasicBlock *> worklist(def_blocks.begin(), def_blocks.end());
     DenseSet<BasicBlock *> phi_blocks;
     while (!worklist.empty()) {
