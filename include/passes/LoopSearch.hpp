@@ -1,66 +1,67 @@
-#ifndef LOOPSEARCH_HPP
-#define LOOPSEARCH_HPP
+#ifndef PASSES_LOOPSEARCH_HPP
+#define PASSES_LOOPSEARCH_HPP
 
-#include "BasicBlock.hpp"
 #include "Function.hpp"
 #include "PassManager.hpp"
+#include "common.hpp"
 
-#include <iostream>
-#include <memory>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
-struct CFGNode;
-using CFGNodePtr = CFGNode *;
-using CFGNodePtrSet = std::unordered_set<CFGNode *>;
-using BBset_t = std::unordered_set<BasicBlock *>;
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 
+#include <string>
+
+/// Finds all loops in every function of the module using Tarjan's strongly
+/// connected components, and records each block's innermost loop entry.
 class LoopSearch : public Pass {
 public:
   explicit LoopSearch(Module *m, bool dump = false) : Pass(m), dump(dump) {}
   ~LoopSearch() override = default;
-  void build_cfg(Function *func, std::unordered_set<CFGNode *> &result);
+
   void run() override;
-  bool
-  strongly_connected_components(CFGNodePtrSet &nodes,
-                                std::unordered_set<CFGNodePtrSet *> &result);
-  void dump_graph(CFGNodePtrSet &nodes, std::string title);
-  void traverse(CFGNodePtr n, std::unordered_set<CFGNodePtrSet *> &result);
-  CFGNodePtr find_loop_base(CFGNodePtrSet *set, CFGNodePtrSet &reserved);
 
   auto begin() { return loop_set.begin(); }
   auto end() { return loop_set.end(); }
 
-  BasicBlock *get_loop_base(BBset_t *loop) { return loop2base[loop]; }
+  BasicBlock *get_base(pass::BBset_t *loop) { return loop2base[loop]; }
 
-  // get the lowest level loop which contains bb
-  BBset_t *get_inner_loop(BasicBlock *bb) {
+  /// Get the innermost loop which contains `bb`.
+  pass::BBset_t *get_innermost(BasicBlock *bb) {
     if (bb2base.find(bb) == bb2base.end()) {
       return nullptr;
     }
     return base2loop[bb2base[bb]];
   }
 
-  // get the parent loop of loop
-  BBset_t *get_parent_loop(BBset_t *loop);
+  /// Get the parent loop of `loop`.
+  pass::BBset_t *get_parent(pass::BBset_t *loop);
 
-  // get all the loops in a function
-  std::unordered_set<BBset_t *> get_loops_in_func(Function *f);
+  /// Get all loops in a function.
+  llvm::DenseSet<pass::BBset_t *> get_loops(Function *f);
 
 private:
+  void build_cfg(Function *func, pass::CFGNodePtrSet &result);
+  bool find_scc(pass::CFGNodePtrSet &nodes,
+                llvm::DenseSet<pass::CFGNodePtrSet *> &result);
+  void dump_graph(pass::CFGNodePtrSet &nodes, std::string title);
+  void traverse(pass::CFGNodePtr n,
+                llvm::DenseSet<pass::CFGNodePtrSet *> &result);
+  pass::CFGNodePtr find_base(pass::CFGNodePtrSet *set,
+                             pass::CFGNodePtrSet &reserved);
+
   int index_count{};
   bool dump;
-  std::vector<CFGNodePtr> stack;
-  // loops found
-  std::unordered_set<BBset_t *> loop_set;
-  // loops found in a function
-  std::unordered_map<Function *, std::unordered_set<BBset_t *>> func2loop;
+  llvm::SmallVector<pass::CFGNodePtr, 4> stack;
+  // Loops found.
+  llvm::DenseSet<pass::BBset_t *> loop_set;
+  // Loops found in a function.
+  llvm::DenseMap<Function *, llvm::DenseSet<pass::BBset_t *>> func2loop;
   // { entry bb of loop : loop }
-  std::unordered_map<BasicBlock *, BBset_t *> base2loop;
+  llvm::DenseMap<BasicBlock *, pass::BBset_t *> base2loop;
   // { loop : entry bb of loop }
-  std::unordered_map<BBset_t *, BasicBlock *> loop2base;
-  // { bb :  entry bb of loop} 默认最低层次的loop
-  std::unordered_map<BasicBlock *, BasicBlock *> bb2base;
+  llvm::DenseMap<pass::BBset_t *, BasicBlock *> loop2base;
+  // { bb : entry bb of loop } Defaults to the lowest-level loop.
+  llvm::DenseMap<BasicBlock *, BasicBlock *> bb2base;
 };
 
 #endif

@@ -1,9 +1,8 @@
 #include "LoopInvHoist.hpp"
-
 #include "LoopSearch.hpp"
 #include "logging.hpp"
 
-#include <algorithm>
+using pass::BBset_t;
 
 void LoopInvHoist::run() {
   LoopSearch loop_searcher(m_, false);
@@ -18,17 +17,17 @@ void LoopInvHoist::run() {
 }
 
 // Optimize from leaf nodes on the loop tree up to the root nodes.
-void LoopInvHoist::hoist(BBset_t *loop, LoopTree &loop_tree,
-                         LoopSearch &loop_searcher, BBset_t &vis) {
+void LoopInvHoist::hoist_invariants(BBset_t *loop, LoopTree &loop_tree,
+                                    LoopSearch &loop_searcher, BBset_t &vis) {
   for (auto subloop : loop_tree[loop]) {
-    hoist(subloop, loop_tree, loop_searcher, vis);
+    hoist_invariants(subloop, loop_tree, loop_searcher, vis);
   }
 
   if (!loop) {
     return;
   }
 
-  auto base = loop_searcher.get_loop_base(loop);
+  auto base = loop_searcher.get_base(loop);
   std::vector<Instruction *> loop_invs;
   // TODO: find loop invariants, insert them into loop_invs
 
@@ -56,14 +55,14 @@ void LoopInvHoist::hoist(BBset_t *loop, LoopTree &loop_tree,
 
 // A instruction can be moved <= no side effects (memory stores included)
 // PHIs are excluded because we don't want to modify them.
-bool LoopInvHoist::can_move(Instruction *instr) {
+bool LoopInvHoist::is_movable(Instruction *instr) {
   return instr->isBinary() || instr->is_si2fp() || instr->is_fp2si() ||
          instr->is_zext() || instr->is_cmp() || instr->is_fcmp() ||
          instr->is_gep();
 }
 
 // Returns false if instr involves any value that is assigned inside loop.
-bool LoopInvHoist::is_inv(Value *value, BBset_t *loop) {
+bool LoopInvHoist::is_loop_invariant(Value *value, BBset_t *loop) {
   // TODO
   return false;
 }

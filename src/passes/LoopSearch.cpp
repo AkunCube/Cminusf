@@ -1,27 +1,34 @@
-#include "LoopSearch.hpp"
-#include "logging.hpp"
-
+#include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
-#include <unordered_set>
+#include <vector>
 
+#include "LoopSearch.hpp"
+#include "llvm/ADT/DenseSet.h"
+
+using pass::BBset_t;
+using pass::CFGNodePtr;
+using pass::CFGNodePtrSet;
+
+namespace pass {
 struct CFGNode {
-  std::unordered_set<CFGNodePtr> succs;
-  std::unordered_set<CFGNodePtr> prevs;
+  CFGNodePtrSet succs;
+  CFGNodePtrSet prevs;
   BasicBlock *bb;
   int index;   // the index of the node in CFG
   int lowlink; // the min index of the node in the strongly connected componets
   bool onStack;
 };
+} // namespace pass
 
-void LoopSearch::build_cfg(Function *func,
-                           std::unordered_set<CFGNode *> &result) {
+void LoopSearch::build_cfg(Function *func, CFGNodePtrSet &result) {
   // TODO: build control flow graph used in loop search pass
 }
 
 // Tarjan algorithm
-bool LoopSearch::strongly_connected_components(
-    CFGNodePtrSet &nodes, std::unordered_set<CFGNodePtrSet *> &result) {
+bool LoopSearch::find_scc(CFGNodePtrSet &nodes,
+                          llvm::DenseSet<CFGNodePtrSet *> &result) {
   index_count = 0;
   stack.clear();
   for (auto n : nodes) {
@@ -33,7 +40,7 @@ bool LoopSearch::strongly_connected_components(
 }
 
 void LoopSearch::traverse(CFGNodePtr n,
-                          std::unordered_set<CFGNodePtrSet *> &result) {
+                          llvm::DenseSet<CFGNodePtrSet *> &result) {
   n->index = index_count++;
   n->lowlink = n->index;
   stack.push_back(n);
@@ -57,8 +64,7 @@ void LoopSearch::traverse(CFGNodePtr n,
   }
 }
 
-CFGNodePtr LoopSearch::find_loop_base(CFGNodePtrSet *set,
-                                      CFGNodePtrSet &reserved) {
+CFGNodePtr LoopSearch::find_base(CFGNodePtrSet *set, CFGNodePtrSet &reserved) {
   CFGNodePtr base = nullptr;
   // TODO: find the loop base node
 
@@ -73,7 +79,7 @@ void LoopSearch::run() {
     } else {
       CFGNodePtrSet nodes;
       CFGNodePtrSet reserved;
-      std::unordered_set<CFGNodePtrSet *> sccs;
+      llvm::DenseSet<CFGNodePtrSet *> sccs;
 
       // step 1: build cfg
       // TODO
@@ -136,13 +142,13 @@ void LoopSearch::dump_graph(CFGNodePtrSet &nodes, std::string title) {
   }
 }
 
-BBset_t *LoopSearch::get_parent_loop(BBset_t *loop) {
+BBset_t *LoopSearch::get_parent(BBset_t *loop) {
   auto base = loop2base[loop];
   for (auto prev : base->get_pre_basic_blocks()) {
     if (loop->find(prev) != loop->end()) {
       continue;
     }
-    auto loop = get_inner_loop(prev);
+    auto loop = get_innermost(prev);
     if (loop == nullptr || loop->find(base) == loop->end()) {
       return nullptr;
     } else {
@@ -152,6 +158,6 @@ BBset_t *LoopSearch::get_parent_loop(BBset_t *loop) {
   return nullptr;
 }
 
-std::unordered_set<BBset_t *> LoopSearch::get_loops_in_func(Function *f) {
-  return func2loop.count(f) ? func2loop[f] : std::unordered_set<BBset_t *>();
+llvm::DenseSet<BBset_t *> LoopSearch::get_loops(Function *f) {
+  return func2loop.count(f) ? func2loop[f] : llvm::DenseSet<BBset_t *>();
 }
