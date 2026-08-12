@@ -11,7 +11,12 @@ void LoopInvHoist::run() {
   LOG(INFO) << "====== Loop invariant motion started ======";
 
   LoopTree loop_tree;
-  // TODO: construct loop tree and do loop invariant hoisting
+  for (BBset_t *loop : loop_searcher) {
+    BBset_t *parent = loop_searcher.get_parent(loop);
+    if (parent) {
+      loop_tree[parent].insert(loop);
+    }
+  }
 
   LOG(INFO) << "====== Loop invariant motion ended ======";
 }
