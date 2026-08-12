@@ -61,7 +61,7 @@ static bool is_loop(CFGNodePtrSet *scc) {
   return node->succs.contains(node);
 }
 
-CFGNodePtrSet LoopSearch::build_cfg(Function *func) {
+CFGNodePtrSet LoopInfo::build_cfg(Function *func) {
   CFGNodePtrSet result;
   // Map from BasicBlock to its corresponding CFGNode.
   llvm::DenseMap<BasicBlock *, CFGNodePtr> block_to_node_map;
@@ -98,7 +98,7 @@ CFGNodePtrSet LoopSearch::build_cfg(Function *func) {
 }
 
 // Tarjan algorithm
-llvm::DenseSet<CFGNodePtrSet *> LoopSearch::find_scc(CFGNodePtrSet &nodes) {
+llvm::DenseSet<CFGNodePtrSet *> LoopInfo::find_scc(CFGNodePtrSet &nodes) {
   llvm::DenseSet<CFGNodePtrSet *> result;
   for (CFGNodePtr node : nodes) {
     node->index.reset();
@@ -150,7 +150,7 @@ llvm::DenseSet<CFGNodePtrSet *> LoopSearch::find_scc(CFGNodePtrSet &nodes) {
   return result;
 }
 
-void LoopSearch::run() {
+void LoopInfo::run() {
   for (Function &func : m_->get_functions()) {
     if (func.is_declaration()) {
       continue;
@@ -212,7 +212,7 @@ void LoopSearch::run() {
   }
 }
 
-void LoopSearch::dump_graph(CFGNodePtrSet &nodes, std::string title) {
+void LoopInfo::dump_graph(CFGNodePtrSet &nodes, std::string title) {
   std::vector<std::string> edge_set;
   for (auto node : nodes) {
     if (node->bb->get_name() == "") {
@@ -251,7 +251,7 @@ void LoopSearch::dump_graph(CFGNodePtrSet &nodes, std::string title) {
   std::system(dot_cmd.c_str());
 }
 
-BBset_t *LoopSearch::get_parent(BBset_t *loop) {
+BBset_t *LoopInfo::get_parent(BBset_t *loop) {
   auto base = loop2base[loop];
   for (auto prev : base->get_pre_basic_blocks()) {
     if (loop->find(prev) != loop->end()) {
@@ -266,6 +266,6 @@ BBset_t *LoopSearch::get_parent(BBset_t *loop) {
   return nullptr;
 }
 
-llvm::DenseSet<BBset_t *> LoopSearch::get_loops(Function *f) {
+llvm::DenseSet<BBset_t *> LoopInfo::get_loops(Function *f) {
   return func2loop.count(f) ? func2loop[f] : llvm::DenseSet<BBset_t *>();
 }
