@@ -1,29 +1,71 @@
 #include <algorithm>
+#include <cassert>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <vector>
 
+#include "BasicBlock.hpp"
+#include "Function.hpp"
 #include "LoopSearch.hpp"
+#include "common.hpp"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 
-using pass::BBset_t;
-using pass::CFGNodePtr;
-using pass::CFGNodePtrSet;
+using namespace pass;
 
 namespace pass {
 struct CFGNode {
   CFGNodePtrSet succs;
   CFGNodePtrSet prevs;
   BasicBlock *bb;
-  int index;   // the index of the node in CFG
-  int lowlink; // the min index of the node in the strongly connected componets
-  bool onStack;
+  /// The index of the node in CFG.
+  int index = -1;
+  /// The min index of the node in the strongly connected componets.
+  int lowlink = 0;
+  bool onStack = false;
+
+  explicit CFGNode(BasicBlock *bb) : bb(bb) {}
 };
 } // namespace pass
 
 void LoopSearch::build_cfg(Function *func, CFGNodePtrSet &result) {
-  // TODO: build control flow graph used in loop search pass
+  // Clean up existing CFG.
+  for (CFGNode *node : result) {
+    delete node;
+  }
+  result.clear();
+
+  // Map from BasicBlock to its corresponding CFGNode.
+  llvm::DenseMap<BasicBlock *, CFGNodePtr> block_to_node_map;
+
+  // Create CFGNode for each BasicBlock.
+  for (BasicBlock &bb : func->get_basic_blocks()) {
+    CFGNodePtr node_ptr = new CFGNode(&bb);
+    result.insert(node_ptr);
+    block_to_node_map[&bb] = node_ptr;
+  }
+
+  // Second pass: build predecessor and successor edges.
+  for (BasicBlock &bb : func->get_basic_blocks()) {
+    auto it = block_to_node_map.find(&bb);
+    assert(it != block_to_node_map.end() && "BasicBlock not found in map");
+    CFGNodePtr node_ptr = it->second;
+
+    for (BasicBlock *pred : bb.get_pre_basic_blocks()) {
+      auto pred_it = block_to_node_map.find(pred);
+      assert(pred_it != block_to_node_map.end() &&
+             "Predecessor not found in map");
+      node_ptr->prevs.insert(pred_it->second);
+    }
+
+    for (BasicBlock *succ : bb.get_succ_basic_blocks()) {
+      auto succ_it = block_to_node_map.find(succ);
+      assert(succ_it != block_to_node_map.end() &&
+             "Successor not found in map");
+      node_ptr->succs.insert(succ_it->second);
+    }
+  }
 }
 
 // Tarjan algorithm
@@ -70,33 +112,31 @@ CFGNodePtr LoopSearch::find_base(CFGNodePtrSet *set, CFGNodePtrSet &reserved) {
 
   return base;
 }
-void LoopSearch::run() {
-  auto &func_list = m_->get_functions();
-  for (auto &func1 : func_list) {
-    auto func = &func1;
-    if (func->get_basic_blocks().size() == 0) {
-      continue;
-    } else {
-      CFGNodePtrSet nodes;
-      CFGNodePtrSet reserved;
-      llvm::DenseSet<CFGNodePtrSet *> sccs;
 
-      // step 1: build cfg
-      // TODO
-      // dump graph
-      dump_graph(nodes, func->get_name());
-      // step 2: find strongly connected graph from external to internal
-      // step 3: find loop base node for each strongly connected graph
-      // step 4: store result
-      // step 5: map each node to loop base
-      // step 6: remove loop base node for researching inner loop
-      // TODO
-      reserved.clear();
-      for (auto node : nodes) {
-        delete node;
-      }
-      nodes.clear();
+void LoopSearch::run() {
+  for (Function &func : m_->get_functions()) {
+    if (func.is_declaration()) {
+      continue;
     }
+    CFGNodePtrSet nodes;
+    CFGNodePtrSet reserved;
+    llvm::DenseSet<CFGNodePtrSet *> sccs;
+
+    // step 1: build cfg
+    build_cfg(&func, nodes);
+    // dump graph
+    dump_graph(nodes, func.get_name());
+    // step 2: find strongly connected graph from external to internal
+    // step 3: find loop base node for each strongly connected graph
+    // step 4: store result
+    // step 5: map each node to loop base
+    // step 6: remove loop base node for researching inner loop
+    // TODO
+    reserved.clear();
+    for (auto node : nodes) {
+      delete node;
+    }
+    nodes.clear();
   }
 }
 
