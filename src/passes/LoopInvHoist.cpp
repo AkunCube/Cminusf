@@ -5,7 +5,7 @@
 using pass::BBset_t;
 
 void LoopInvHoist::run() {
-  LoopSearch loop_searcher(m_, false);
+  LoopInfo loop_searcher(m_, false);
   loop_searcher.run();
 
   LOG(INFO) << "====== Loop invariant motion started ======";
@@ -18,7 +18,7 @@ void LoopInvHoist::run() {
 
 // Optimize from leaf nodes on the loop tree up to the root nodes.
 void LoopInvHoist::hoist_invariants(BBset_t *loop, LoopTree &loop_tree,
-                                    LoopSearch &loop_searcher, BBset_t &vis) {
+                                    LoopInfo &loop_searcher, BBset_t &vis) {
   for (auto subloop : loop_tree[loop]) {
     hoist_invariants(subloop, loop_tree, loop_searcher, vis);
   }
