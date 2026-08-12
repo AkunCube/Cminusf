@@ -1,6 +1,7 @@
 #include "LoopInvHoist.hpp"
 #include "LoopSearch.hpp"
 #include "logging.hpp"
+#include "llvm/ADT/STLExtras.h"
 
 using pass::BBset_t;
 
@@ -67,7 +68,34 @@ bool LoopInvHoist::is_movable(Instruction *instr) {
 }
 
 // Returns false if instr involves any value that is assigned inside loop.
-bool LoopInvHoist::is_loop_invariant(Value *value, BBset_t *loop) {
-  // TODO
-  return false;
+bool LoopInvHoist::is_loop_invariant(
+    Value *value, BBset_t *loop,
+    llvm::DenseMap<Value *, bool> &invariant_cache) {
+  if (auto it = invariant_cache.find(value); it != invariant_cache.end()) {
+    return it->second;
+  }
+
+  Instruction *inst = dynamic_cast<Instruction *>(value);
+
+  bool invariant = [&]() -> bool {
+    if (!inst) {
+      return true;
+    }
+
+    // If the instruction is not inside the loop, it's trivially invariant.
+    if (!loop->contains(inst->get_parent())) {
+      return true;
+    }
+    if (!is_movable(inst)) {
+      return false;
+    }
+
+    // An instruction is invariant iff all its operands are invariant.
+    return llvm::all_of(inst->get_operands(), [&](Value *operand) {
+      return is_loop_invariant(operand, loop, invariant_cache);
+    });
+  }();
+
+  invariant_cache[value] = invariant;
+  return invariant;
 }
