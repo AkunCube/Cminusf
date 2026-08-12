@@ -13,6 +13,7 @@
 #include "common.hpp"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 
 using namespace pass;
@@ -30,6 +31,35 @@ struct CFGNode {
   explicit CFGNode(BasicBlock *bb) : bb(bb) {}
 };
 } // namespace pass
+
+static CFGNodePtr find_loop_header(CFGNodePtrSet *scc, BasicBlock *func_entry) {
+  llvm::DenseSet<CFGNodePtr> candidates;
+  for (CFGNodePtr node : *scc) {
+    if (llvm::any_of(node->prevs, [&](CFGNodePtr pred) {
+          return pred->bb == func_entry || !scc->contains(pred);
+        })) {
+      candidates.insert(node);
+    }
+  }
+
+  if (candidates.size() != 1) {
+    return nullptr;
+  }
+  return *candidates.begin();
+}
+
+static bool is_loop(CFGNodePtrSet *scc) {
+  if (scc->empty()) {
+    return false;
+  }
+
+  if (scc->size() > 1) {
+    return true;
+  }
+
+  CFGNodePtr node = *scc->begin();
+  return node->succs.contains(node);
+}
 
 CFGNodePtrSet LoopSearch::build_cfg(Function *func) {
   CFGNodePtrSet result;
@@ -120,35 +150,62 @@ llvm::DenseSet<CFGNodePtrSet *> LoopSearch::find_scc(CFGNodePtrSet &nodes) {
   return result;
 }
 
-CFGNodePtr LoopSearch::find_base(CFGNodePtrSet *set, CFGNodePtrSet &reserved) {
-  CFGNodePtr base = nullptr;
-  // TODO: find the loop base node
-
-  return base;
-}
-
 void LoopSearch::run() {
   for (Function &func : m_->get_functions()) {
     if (func.is_declaration()) {
       continue;
     }
-    CFGNodePtrSet reserved;
 
-    // step 1: build cfg
+    // Build cfg.
     CFGNodePtrSet nodes = build_cfg(&func);
-    // dump graph
-    dump_graph(nodes, func.get_name());
-    // step 2: find strongly connected graph from external to internal
-    llvm::DenseSet<CFGNodePtrSet *> sccs = find_scc(nodes);
-    // step 3: find loop base node for each strongly connected graph
-    // step 4: store result
-    // step 5: map each node to loop base
-    // step 6: remove loop base node for researching inner loop
-    // TODO
-    reserved.clear();
-    for (CFGNodePtrSet *scc : sccs) {
-      delete scc;
+    // Dump graph.
+    if (en_dump_graph) {
+      dump_graph(nodes, func.get_name());
     }
+
+    CFGNodePtrSet remaining = nodes;
+
+    while (true) {
+      // Find strongly connected graph from external to internal.
+      llvm::DenseSet<CFGNodePtrSet *> sccs = find_scc(remaining);
+      if (sccs.empty()) {
+        break;
+      }
+
+      llvm::DenseSet<CFGNodePtr> to_remove;
+      for (CFGNodePtrSet *scc : sccs) {
+        // Find loop base node for each strongly connected graph.
+        CFGNodePtr header = is_loop(scc)
+                                ? find_loop_header(scc, func.get_entry_block())
+                                : nullptr;
+        if (!header) {
+          to_remove.insert(scc->begin(), scc->end());
+          continue;
+        }
+        BasicBlock *header_bb = header->bb;
+        auto *loop = new BBset_t();
+        for (CFGNodePtr node : *scc) {
+          loop->insert(node->bb);
+          bb2base[node->bb] = header_bb;
+        }
+
+        // Mapping.
+        loop_set.insert(loop);
+        func2loop[&func].insert(loop);
+        loop2base[loop] = header_bb;
+        base2loop[header_bb] = loop;
+        to_remove.insert(header);
+      }
+
+      for (CFGNodePtrSet *scc : sccs) {
+        delete scc;
+      }
+
+      for (CFGNodePtr node : to_remove) {
+        remaining.erase(node);
+      }
+    }
+
     for (auto node : nodes) {
       delete node;
     }
@@ -156,45 +213,42 @@ void LoopSearch::run() {
 }
 
 void LoopSearch::dump_graph(CFGNodePtrSet &nodes, std::string title) {
-  if (dump) {
-    std::vector<std::string> edge_set;
-    for (auto node : nodes) {
-      if (node->bb->get_name() == "") {
-        return;
-      }
-      if (base2loop.find(node->bb) != base2loop.end()) {
-        for (auto succ : node->succs) {
-          if (nodes.find(succ) != nodes.end()) {
-            edge_set.insert(edge_set.begin(), '\t' + node->bb->get_name() +
-                                                  "->" + succ->bb->get_name() +
-                                                  ';' + '\n');
-          }
+  std::vector<std::string> edge_set;
+  for (auto node : nodes) {
+    if (node->bb->get_name() == "") {
+      return;
+    }
+    if (base2loop.find(node->bb) != base2loop.end()) {
+      for (auto succ : node->succs) {
+        if (nodes.find(succ) != nodes.end()) {
+          edge_set.insert(edge_set.begin(), '\t' + node->bb->get_name() + "->" +
+                                                succ->bb->get_name() + ';' +
+                                                '\n');
         }
-        edge_set.insert(edge_set.begin(), '\t' + node->bb->get_name() +
-                                              " [color=red]" + ';' + '\n');
-      } else {
-        for (auto succ : node->succs) {
-          if (nodes.find(succ) != nodes.end()) {
-            edge_set.push_back('\t' + node->bb->get_name() + "->" +
-                               succ->bb->get_name() + ';' + '\n');
-          }
+      }
+      edge_set.insert(edge_set.begin(), '\t' + node->bb->get_name() +
+                                            " [color=red]" + ';' + '\n');
+    } else {
+      for (auto succ : node->succs) {
+        if (nodes.find(succ) != nodes.end()) {
+          edge_set.push_back('\t' + node->bb->get_name() + "->" +
+                             succ->bb->get_name() + ';' + '\n');
         }
       }
     }
-    std::string digragh = "digraph G {\n";
-    for (auto edge : edge_set) {
-      digragh += edge;
-    }
-    digragh += '}';
-    std::ofstream file_output;
-    file_output.open(title + ".dot", std::ios::out);
-
-    file_output << digragh;
-    file_output.close();
-    std::string dot_cmd =
-        "dot -Tpng " + title + ".dot" + " -o " + title + ".png";
-    std::system(dot_cmd.c_str());
   }
+  std::string digragh = "digraph G {\n";
+  for (auto edge : edge_set) {
+    digragh += edge;
+  }
+  digragh += '}';
+  std::ofstream file_output;
+  file_output.open(title + ".dot", std::ios::out);
+
+  file_output << digragh;
+  file_output.close();
+  std::string dot_cmd = "dot -Tpng " + title + ".dot" + " -o " + title + ".png";
+  std::system(dot_cmd.c_str());
 }
 
 BBset_t *LoopSearch::get_parent(BBset_t *loop) {
@@ -206,9 +260,8 @@ BBset_t *LoopSearch::get_parent(BBset_t *loop) {
     auto loop = get_innermost(prev);
     if (loop == nullptr || loop->find(base) == loop->end()) {
       return nullptr;
-    } else {
-      return loop;
     }
+    return loop;
   }
   return nullptr;
 }

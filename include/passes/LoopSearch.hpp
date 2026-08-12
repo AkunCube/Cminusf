@@ -13,7 +13,8 @@
 /// connected components, and records each block's innermost loop entry.
 class LoopSearch : public Pass {
 public:
-  explicit LoopSearch(Module *m, bool dump = false) : Pass(m), dump(dump) {}
+  explicit LoopSearch(Module *m, bool dump = false)
+      : Pass(m), en_dump_graph(dump) {}
   ~LoopSearch() override = default;
 
   void run() override;
@@ -41,10 +42,8 @@ private:
   pass::CFGNodePtrSet build_cfg(Function *func);
   llvm::DenseSet<pass::CFGNodePtrSet *> find_scc(pass::CFGNodePtrSet &nodes);
   void dump_graph(pass::CFGNodePtrSet &nodes, std::string title);
-  pass::CFGNodePtr find_base(pass::CFGNodePtrSet *set,
-                             pass::CFGNodePtrSet &reserved);
 
-  bool dump;
+  bool en_dump_graph;
   // Loops found.
   llvm::DenseSet<pass::BBset_t *> loop_set;
   // Loops found in a function.
