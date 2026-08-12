@@ -2,7 +2,9 @@
 #include <cassert>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <optional>
 #include <vector>
 
 #include "BasicBlock.hpp"
@@ -11,6 +13,7 @@
 #include "common.hpp"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SetVector.h"
 
 using namespace pass;
 
@@ -20,22 +23,16 @@ struct CFGNode {
   CFGNodePtrSet prevs;
   BasicBlock *bb;
   /// The index of the node in CFG.
-  int index = -1;
+  std::optional<int> index;
   /// The min index of the node in the strongly connected componets.
-  int lowlink = 0;
-  bool onStack = false;
+  std::optional<int> low_link;
 
   explicit CFGNode(BasicBlock *bb) : bb(bb) {}
 };
 } // namespace pass
 
-void LoopSearch::build_cfg(Function *func, CFGNodePtrSet &result) {
-  // Clean up existing CFG.
-  for (CFGNode *node : result) {
-    delete node;
-  }
-  result.clear();
-
+CFGNodePtrSet LoopSearch::build_cfg(Function *func) {
+  CFGNodePtrSet result;
   // Map from BasicBlock to its corresponding CFGNode.
   llvm::DenseMap<BasicBlock *, CFGNodePtr> block_to_node_map;
 
@@ -66,44 +63,61 @@ void LoopSearch::build_cfg(Function *func, CFGNodePtrSet &result) {
       node_ptr->succs.insert(succ_it->second);
     }
   }
+
+  return result;
 }
 
 // Tarjan algorithm
-bool LoopSearch::find_scc(CFGNodePtrSet &nodes,
-                          llvm::DenseSet<CFGNodePtrSet *> &result) {
-  index_count = 0;
-  stack.clear();
-  for (auto n : nodes) {
-    if (n->index == -1) {
-      traverse(n, result);
+llvm::DenseSet<CFGNodePtrSet *> LoopSearch::find_scc(CFGNodePtrSet &nodes) {
+  llvm::DenseSet<CFGNodePtrSet *> result;
+  for (CFGNodePtr node : nodes) {
+    node->index.reset();
+    node->low_link.reset();
+  }
+  int index_count = 0;
+  // SetVector preserves DFS stack order and provides fast membership checks.
+  llvm::SetVector<CFGNodePtr> stack;
+
+  std::function<void(CFGNodePtr)> traverse = [&](CFGNodePtr node) {
+    node->index = node->low_link = index_count;
+    ++index_count;
+    stack.insert(node);
+
+    for (CFGNodePtr succ : node->succs) {
+      if (!nodes.contains(succ)) {
+        continue;
+      }
+
+      if (!succ->index.has_value()) {
+        traverse(succ);
+        node->low_link = std::min(*node->low_link, *succ->low_link);
+      } else if (stack.contains(succ)) {
+        // A back edge to an active node may lower this node's SCC root.
+        node->low_link = std::min(*node->low_link, *succ->index);
+      }
+    }
+
+    // A root node closes the SCC currently at the top of the DFS stack.
+    if (*node->index == *node->low_link) {
+      auto *group = new CFGNodePtrSet();
+      while (!stack.empty()) {
+        CFGNodePtr member = stack.pop_back_val();
+        group->insert(member);
+        if (member == node) {
+          break;
+        }
+      }
+      result.insert(group);
+    }
+  };
+
+  for (CFGNodePtr node : nodes) {
+    if (!node->index.has_value()) {
+      traverse(node);
     }
   }
-  return result.size() != 0;
-}
 
-void LoopSearch::traverse(CFGNodePtr n,
-                          llvm::DenseSet<CFGNodePtrSet *> &result) {
-  n->index = index_count++;
-  n->lowlink = n->index;
-  stack.push_back(n);
-  n->onStack = true;
-
-  for (auto su : n->succs) {
-    // has not visited su
-    if (su->index == -1) {
-      traverse(su, result);
-      n->lowlink = std::min(su->lowlink, n->lowlink);
-    }
-    // has visited su
-    else if (su->onStack) {
-      n->lowlink = std::min(su->index, n->lowlink);
-    }
-  }
-
-  if (n->index == n->lowlink) {
-    // TODO: pop out the nodes in the same strongly connected component from
-    // stack
-  }
+  return result;
 }
 
 CFGNodePtr LoopSearch::find_base(CFGNodePtrSet *set, CFGNodePtrSet &reserved) {
@@ -118,25 +132,26 @@ void LoopSearch::run() {
     if (func.is_declaration()) {
       continue;
     }
-    CFGNodePtrSet nodes;
     CFGNodePtrSet reserved;
-    llvm::DenseSet<CFGNodePtrSet *> sccs;
 
     // step 1: build cfg
-    build_cfg(&func, nodes);
+    CFGNodePtrSet nodes = build_cfg(&func);
     // dump graph
     dump_graph(nodes, func.get_name());
     // step 2: find strongly connected graph from external to internal
+    llvm::DenseSet<CFGNodePtrSet *> sccs = find_scc(nodes);
     // step 3: find loop base node for each strongly connected graph
     // step 4: store result
     // step 5: map each node to loop base
     // step 6: remove loop base node for researching inner loop
     // TODO
     reserved.clear();
+    for (CFGNodePtrSet *scc : sccs) {
+      delete scc;
+    }
     for (auto node : nodes) {
       delete node;
     }
-    nodes.clear();
   }
 }
 

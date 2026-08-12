@@ -1,15 +1,13 @@
 #ifndef PASSES_LOOPSEARCH_HPP
 #define PASSES_LOOPSEARCH_HPP
 
+#include <string>
+
 #include "Function.hpp"
 #include "PassManager.hpp"
 #include "common.hpp"
-
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/SmallVector.h"
-
-#include <string>
 
 /// Finds all loops in every function of the module using Tarjan's strongly
 /// connected components, and records each block's innermost loop entry.
@@ -40,18 +38,13 @@ public:
   llvm::DenseSet<pass::BBset_t *> get_loops(Function *f);
 
 private:
-  void build_cfg(Function *func, pass::CFGNodePtrSet &result);
-  bool find_scc(pass::CFGNodePtrSet &nodes,
-                llvm::DenseSet<pass::CFGNodePtrSet *> &result);
+  pass::CFGNodePtrSet build_cfg(Function *func);
+  llvm::DenseSet<pass::CFGNodePtrSet *> find_scc(pass::CFGNodePtrSet &nodes);
   void dump_graph(pass::CFGNodePtrSet &nodes, std::string title);
-  void traverse(pass::CFGNodePtr n,
-                llvm::DenseSet<pass::CFGNodePtrSet *> &result);
   pass::CFGNodePtr find_base(pass::CFGNodePtrSet *set,
                              pass::CFGNodePtrSet &reserved);
 
-  int index_count{};
   bool dump;
-  llvm::SmallVector<pass::CFGNodePtr, 4> stack;
   // Loops found.
   llvm::DenseSet<pass::BBset_t *> loop_set;
   // Loops found in a function.
