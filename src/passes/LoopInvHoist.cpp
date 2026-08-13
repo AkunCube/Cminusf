@@ -1,9 +1,14 @@
+#include <queue>
+
 #include "LoopInvHoist.hpp"
 #include "LoopSearch.hpp"
 #include "logging.hpp"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorOr.h"
 
 using pass::BBset_t;
 using namespace llvm;
@@ -45,6 +50,58 @@ static bool is_loop_invariant(Value *value, BBset_t *loop,
 
   invariant_cache[value] = invariant;
   return invariant;
+}
+
+/// Orders instructions so each in-set operand precedes its users.
+/// Returns an error if the induced dependency graph contains a cycle.
+[[maybe_unused]] static ErrorOr<SmallVector<Instruction *>>
+compute_topological_order(SetVector<Instruction *> &instructions) {
+  DenseMap<Instruction *, unsigned> remaining_deps;
+  for (Instruction *inst : instructions) {
+    remaining_deps.try_emplace(inst, 0);
+  }
+
+  // Count only dependencies whose definitions are also in the input set.
+  for (Instruction *inst : instructions) {
+    for (Value *operand : inst->get_operands()) {
+      auto *operand_inst = dynamic_cast<Instruction *>(operand);
+      if (!operand_inst || !instructions.contains(operand_inst)) {
+        continue;
+      }
+      ++remaining_deps[inst];
+    }
+  }
+
+  std::queue<Instruction *> worklist;
+  for (Instruction *inst : instructions) {
+    if (remaining_deps[inst] == 0) {
+      worklist.push(inst);
+    }
+  }
+
+  SmallVector<Instruction *> sorted_order;
+  while (!worklist.empty()) {
+    Instruction *current = worklist.front();
+    worklist.pop();
+    sorted_order.push_back(current);
+
+    // Removing a node releases one dependency from each in-set user.
+    for (const Use &use : current->get_use_list()) {
+      auto *user = dynamic_cast<Instruction *>(use.val_);
+      if (!user || !remaining_deps.contains(user)) {
+        continue;
+      }
+      if (--remaining_deps[user] == 0) {
+        worklist.push(user);
+      }
+    }
+  }
+
+  if (sorted_order.size() == instructions.size()) {
+    return sorted_order;
+  }
+
+  return std::errc::invalid_argument;
 }
 
 void LoopInvHoist::run() {
