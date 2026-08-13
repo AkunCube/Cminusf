@@ -23,9 +23,6 @@ private:
 
   void hoist_invariants(pass::BBset_t *loop, LoopTree &loop_tree,
                         LoopInfo &loop_searcher, pass::BBset_t &vis);
-  bool is_loop_invariant(Value *value, pass::BBset_t *loop,
-                         llvm::DenseMap<Value *, bool> &invariant_cache);
-  bool is_movable(Instruction *instr);
 };
 
 #endif

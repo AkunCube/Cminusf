@@ -1,9 +1,51 @@
 #include "LoopInvHoist.hpp"
 #include "LoopSearch.hpp"
 #include "logging.hpp"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
 using pass::BBset_t;
+using namespace llvm;
+
+/// A instruction can be moved <= no side effects (memory stores included)
+/// PHIs are excluded because we don't want to modify them.
+static bool is_movable(Instruction *instr) {
+  return instr->isBinary() || instr->is_si2fp() || instr->is_fp2si() ||
+         instr->is_zext() || instr->is_cmp() || instr->is_fcmp() ||
+         instr->is_gep();
+}
+
+/// Returns false if instr involves any value that is assigned inside loop.
+static bool is_loop_invariant(Value *value, BBset_t *loop,
+                              DenseMap<Value *, bool> &invariant_cache) {
+  if (auto it = invariant_cache.find(value); it != invariant_cache.end()) {
+    return it->second;
+  }
+
+  bool invariant = [&]() -> bool {
+    Instruction *inst = dynamic_cast<Instruction *>(value);
+    if (!inst) {
+      return true;
+    }
+
+    // If the instruction is not inside the loop, it's trivially invariant.
+    if (!loop->contains(inst->get_parent())) {
+      return true;
+    }
+    if (!is_movable(inst)) {
+      return false;
+    }
+
+    // An instruction is invariant iff all its operands are invariant.
+    return all_of(inst->get_operands(), [&](Value *operand) {
+      return is_loop_invariant(operand, loop, invariant_cache);
+    });
+  }();
+
+  invariant_cache[value] = invariant;
+  return invariant;
+}
 
 void LoopInvHoist::run() {
   LoopInfo loop_searcher(m_, false);
@@ -57,45 +99,4 @@ void LoopInvHoist::hoist_invariants(BBset_t *loop, LoopTree &loop_tree,
   for (auto bb : *loop) {
     vis.insert(bb);
   }
-}
-
-// A instruction can be moved <= no side effects (memory stores included)
-// PHIs are excluded because we don't want to modify them.
-bool LoopInvHoist::is_movable(Instruction *instr) {
-  return instr->isBinary() || instr->is_si2fp() || instr->is_fp2si() ||
-         instr->is_zext() || instr->is_cmp() || instr->is_fcmp() ||
-         instr->is_gep();
-}
-
-// Returns false if instr involves any value that is assigned inside loop.
-bool LoopInvHoist::is_loop_invariant(
-    Value *value, BBset_t *loop,
-    llvm::DenseMap<Value *, bool> &invariant_cache) {
-  if (auto it = invariant_cache.find(value); it != invariant_cache.end()) {
-    return it->second;
-  }
-
-  Instruction *inst = dynamic_cast<Instruction *>(value);
-
-  bool invariant = [&]() -> bool {
-    if (!inst) {
-      return true;
-    }
-
-    // If the instruction is not inside the loop, it's trivially invariant.
-    if (!loop->contains(inst->get_parent())) {
-      return true;
-    }
-    if (!is_movable(inst)) {
-      return false;
-    }
-
-    // An instruction is invariant iff all its operands are invariant.
-    return llvm::all_of(inst->get_operands(), [&](Value *operand) {
-      return is_loop_invariant(operand, loop, invariant_cache);
-    });
-  }();
-
-  invariant_cache[value] = invariant;
-  return invariant;
 }
