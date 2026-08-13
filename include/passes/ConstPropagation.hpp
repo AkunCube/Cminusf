@@ -5,22 +5,8 @@
 #include "Instruction.hpp"
 #include "Module.hpp"
 #include "PassManager.hpp"
+#include "common/ConstFolder.hpp"
 #include "llvm/ADT/DenseMap.h"
-
-class ConstFolder {
-public:
-  ConstFolder(Module *m) : module_(m) {}
-  // cminus only support binary operations
-  ConstantInt *compute(Instruction::OpID op, ConstantInt *value1,
-                       ConstantInt *value2);
-  Constant *compute(Instruction::OpID op, ConstantFP *value1,
-                    ConstantFP *value2);
-  ConstantFP *sitofp(ConstantInt *value);
-  ConstantInt *fptosi(ConstantFP *value);
-
-private:
-  Module *module_;
-};
 
 class ConstPropagation : public Pass {
 public:

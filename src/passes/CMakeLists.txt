@@ -10,3 +10,5 @@ add_library(
     LoopSearch.cpp
     UnreachableBlockElim.cpp
 )
+
+add_subdirectory(common)

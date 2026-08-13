@@ -9,6 +9,7 @@
 #include "Module.hpp"
 #include "PassManager.hpp"
 #include "Value.hpp"
+#include "common/ConstFolder.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -21,17 +22,6 @@
 #include <vector>
 
 namespace GVNExpression {
-
-// fold the constant value 常量折叠
-class ConstFolder {
-public:
-  explicit ConstFolder(Module *m) : module_(m) {}
-  Constant *compute(Instruction *instr, Constant *value1, Constant *value2);
-  Constant *compute(Instruction *instr, Constant *value1);
-
-private:
-  Module *module_;
-};
 
 /**
  * for constructor of class derived from `Expression`, we make it public
@@ -190,7 +180,7 @@ private:
   Function *func_{};
   std::map<BasicBlock *, partitions> pin_, pout_;
   std::unique_ptr<FuncInfo> func_info_;
-  std::unique_ptr<GVNExpression::ConstFolder> folder_;
+  std::unique_ptr<ConstFolder> folder_;
   std::unique_ptr<DeadCode> dce_;
 };
 

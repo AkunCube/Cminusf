@@ -1,4 +1,3 @@
-#include <cmath>
 #include <deque>
 
 #include "BasicBlock.hpp"
@@ -12,46 +11,6 @@
 #include "llvm/ADT/STLExtras.h"
 
 using namespace llvm;
-
-static Constant *fold_instruction(Instruction *instr, ConstFolder &folder) {
-  // Handle binary integer operations.
-  if (instr->is_add() || instr->is_sub() || instr->is_mul() ||
-      instr->is_div() || instr->is_cmp()) {
-    auto *lhs = dynamic_cast<ConstantInt *>(instr->get_operand(0));
-    auto *rhs = dynamic_cast<ConstantInt *>(instr->get_operand(1));
-    if (lhs && rhs) {
-      return folder.compute(instr->get_instr_type(), lhs, rhs);
-    }
-  }
-
-  // Handle binary floating-point operations.
-  if (instr->is_fadd() || instr->is_fsub() || instr->is_fmul() ||
-      instr->is_fdiv() || instr->is_fcmp()) {
-    auto *lhs = dynamic_cast<ConstantFP *>(instr->get_operand(0));
-    auto *rhs = dynamic_cast<ConstantFP *>(instr->get_operand(1));
-    if (lhs && rhs) {
-      return folder.compute(instr->get_instr_type(), lhs, rhs);
-    }
-  }
-
-  // Handle sitofp (int -> float).
-  if (instr->is_si2fp()) {
-    auto *val = dynamic_cast<ConstantInt *>(instr->get_operand(0));
-    if (val) {
-      return folder.sitofp(val);
-    }
-  }
-
-  // Handle fptosi (float -> int).
-  if (instr->is_fp2si()) {
-    auto *val = dynamic_cast<ConstantFP *>(instr->get_operand(0));
-    if (val) {
-      return folder.fptosi(val);
-    }
-  }
-
-  return nullptr;
-}
 
 // Rewrite conditional branches with constant conditions into unconditional
 // branches, returning the blocks that become unreachable as a result.
@@ -94,116 +53,6 @@ static DenseSet<BasicBlock *> simplify_constant_branches(Function &function) {
   return dead_blocks;
 }
 
-ConstantInt *ConstFolder::compute(Instruction::OpID op, ConstantInt *value1,
-                                  ConstantInt *value2) {
-  if (!value1 || !value2) {
-    return nullptr;
-  }
-
-  const int c1 = value1->get_value();
-  const int c2 = value2->get_value();
-  int result = 0;
-
-  switch (op) {
-    case Instruction::add:
-      result = c1 + c2;
-      break;
-    case Instruction::sub:
-      result = c1 - c2;
-      break;
-    case Instruction::mul:
-      result = c1 * c2;
-      break;
-    case Instruction::sdiv:
-      if (c2 == 0) {
-        return nullptr;
-      }
-      result = c1 / c2;
-      break;
-    case Instruction::eq:
-      return ConstantInt::get(c1 == c2, module_);
-    case Instruction::ne:
-      return ConstantInt::get(c1 != c2, module_);
-    case Instruction::gt:
-      return ConstantInt::get(c1 > c2, module_);
-    case Instruction::ge:
-      return ConstantInt::get(c1 >= c2, module_);
-    case Instruction::lt:
-      return ConstantInt::get(c1 < c2, module_);
-    case Instruction::le:
-      return ConstantInt::get(c1 <= c2, module_);
-    default:
-      return nullptr;
-  }
-
-  return ConstantInt::get(result, module_);
-}
-
-Constant *ConstFolder::compute(Instruction::OpID op, ConstantFP *value1,
-                               ConstantFP *value2) {
-  if (!value1 || !value2) {
-    return nullptr;
-  }
-
-  const float c1 = value1->get_value();
-  const float c2 = value2->get_value();
-  float result = 0.0f;
-
-  switch (op) {
-    case Instruction::fadd:
-      result = c1 + c2;
-      break;
-    case Instruction::fsub:
-      result = c1 - c2;
-      break;
-    case Instruction::fmul:
-      result = c1 * c2;
-      break;
-    case Instruction::fdiv:
-      if (std::isnan(c1) || std::isnan(c2)) {
-        return nullptr;
-      }
-      result = c1 / c2;
-      break;
-    case Instruction::feq:
-      return ConstantInt::get(c1 == c2, module_);
-    case Instruction::fne:
-      return ConstantInt::get(c1 != c2, module_);
-    case Instruction::fgt:
-      return ConstantInt::get(c1 > c2, module_);
-    case Instruction::fge:
-      return ConstantInt::get(c1 >= c2, module_);
-    case Instruction::flt:
-      return ConstantInt::get(c1 < c2, module_);
-    case Instruction::fle:
-      return ConstantInt::get(c1 <= c2, module_);
-    default:
-      return nullptr;
-  }
-
-  return ConstantFP::get(result, module_);
-}
-
-ConstantFP *ConstFolder::sitofp(ConstantInt *value) {
-  if (!value) {
-    return nullptr;
-  }
-  return ConstantFP::get(static_cast<float>(value->get_value()), module_);
-}
-
-ConstantInt *ConstFolder::fptosi(ConstantFP *value) {
-  if (!value) {
-    return nullptr;
-  }
-
-  const double val = static_cast<double>(value->get_value());
-  if (val > std::numeric_limits<int>::max() ||
-      val < std::numeric_limits<int>::min() || std::isnan(val)) {
-    return nullptr;
-  }
-  return ConstantInt::get(static_cast<int>(val), module_);
-}
-
 void ConstPropagation::run() {
   for (Function &function : m_->get_functions()) {
     if (function.is_declaration()) {
@@ -227,7 +76,7 @@ void ConstPropagation::run_on_basic_block(BasicBlock &block) {
     Constant *replacement =
         try_propagate_global_constant(&instr, known_constants);
     if (!replacement) {
-      replacement = fold_instruction(&instr, folder);
+      replacement = folder.try_fold(&instr);
     }
     if (!replacement) {
       continue;
