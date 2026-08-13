@@ -1,5 +1,5 @@
-#ifndef PASSES_LOOPSEARCH_HPP
-#define PASSES_LOOPSEARCH_HPP
+#ifndef PASSES_LOOPINFO_HPP
+#define PASSES_LOOPINFO_HPP
 
 #include <string>
 

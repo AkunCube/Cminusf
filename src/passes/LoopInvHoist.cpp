@@ -3,8 +3,8 @@
 #include <queue>
 
 #include "Instruction.hpp"
+#include "LoopInfo.hpp"
 #include "LoopInvHoist.hpp"
-#include "LoopSearch.hpp"
 #include "common.hpp"
 #include "logging.hpp"
 #include "llvm/ADT/DenseMap.h"
