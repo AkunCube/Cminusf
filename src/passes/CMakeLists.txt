@@ -7,7 +7,7 @@ add_library(
     DeadCode.cpp
     GVN.cpp
     LoopInvHoist.cpp
-    LoopSearch.cpp
+    LoopInfo.cpp
     UnreachableBlockElim.cpp
 )
 

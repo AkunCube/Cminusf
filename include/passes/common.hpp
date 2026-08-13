@@ -4,7 +4,7 @@
 #include "BasicBlock.hpp"
 #include "llvm/ADT/DenseSet.h"
 
-/// Type aliases shared by the loop passes (LoopSearch, LoopInvHoist).
+/// Type aliases shared by the loop passes (LoopInfo, LoopInvHoist).
 ///
 /// They live in their own namespace so that generic names such as `BBset_t`
 /// do not pollute the global namespace. The namespace is spelled `pass`

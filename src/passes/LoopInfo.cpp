@@ -9,7 +9,7 @@
 
 #include "BasicBlock.hpp"
 #include "Function.hpp"
-#include "LoopSearch.hpp"
+#include "LoopInfo.hpp"
 #include "common.hpp"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
