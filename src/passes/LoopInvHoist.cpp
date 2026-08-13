@@ -1,16 +1,20 @@
+#include <cassert>
+#include <optional>
 #include <queue>
 
+#include "Instruction.hpp"
 #include "LoopInvHoist.hpp"
 #include "LoopSearch.hpp"
+#include "common.hpp"
 #include "logging.hpp"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/ErrorOr.h"
 
 using pass::BBset_t;
+using LoopTree = llvm::DenseMap<BBset_t *, llvm::DenseSet<BBset_t *>>;
 using namespace llvm;
 
 /// A instruction can be moved <= no side effects (memory stores included)
@@ -23,6 +27,7 @@ static bool is_movable(Instruction *instr) {
 
 /// Returns false if instr involves any value that is assigned inside loop.
 static bool is_loop_invariant(Value *value, BBset_t *loop,
+                              const BBset_t &processed_subloop_blocks,
                               DenseMap<Value *, bool> &invariant_cache) {
   if (auto it = invariant_cache.find(value); it != invariant_cache.end()) {
     return it->second;
@@ -38,13 +43,18 @@ static bool is_loop_invariant(Value *value, BBset_t *loop,
     if (!loop->contains(inst->get_parent())) {
       return true;
     }
+    // Do not move users ahead of definitions left inside a nested loop.
+    if (processed_subloop_blocks.contains(inst->get_parent())) {
+      return false;
+    }
     if (!is_movable(inst)) {
       return false;
     }
 
     // An instruction is invariant iff all its operands are invariant.
     return all_of(inst->get_operands(), [&](Value *operand) {
-      return is_loop_invariant(operand, loop, invariant_cache);
+      return is_loop_invariant(operand, loop, processed_subloop_blocks,
+                               invariant_cache);
     });
   }();
 
@@ -52,9 +62,35 @@ static bool is_loop_invariant(Value *value, BBset_t *loop,
   return invariant;
 }
 
+/// Collects loop-invariant instructions from the loop body.
+static SetVector<Instruction *>
+collect_loop_invariant_instructions(BBset_t *loop,
+                                    const BBset_t &processed_subloop_blocks) {
+  assert(loop && "Loop block set cannot be null");
+
+  DenseMap<Value *, bool> invariant_cache;
+  SetVector<Instruction *> invariant_instructions;
+
+  for (BasicBlock *block : *loop) {
+    // Nested loops have already been handled by the bottom-up traversal.
+    if (processed_subloop_blocks.contains(block)) {
+      continue;
+    }
+
+    for (Instruction &inst : block->get_instructions()) {
+      if (is_loop_invariant(&inst, loop, processed_subloop_blocks,
+                            invariant_cache)) {
+        invariant_instructions.insert(&inst);
+      }
+    }
+  }
+
+  return invariant_instructions;
+}
+
 /// Orders instructions so each in-set operand precedes its users.
 /// Returns an error if the induced dependency graph contains a cycle.
-[[maybe_unused]] static ErrorOr<SmallVector<Instruction *>>
+static std::optional<SmallVector<Instruction *>>
 compute_topological_order(SetVector<Instruction *> &instructions) {
   DenseMap<Instruction *, unsigned> remaining_deps;
   for (Instruction *inst : instructions) {
@@ -101,59 +137,100 @@ compute_topological_order(SetVector<Instruction *> &instructions) {
     return sorted_order;
   }
 
-  return std::errc::invalid_argument;
+  return std::nullopt;
 }
 
-void LoopInvHoist::run() {
-  LoopInfo loop_searcher(m_, false);
-  loop_searcher.run();
+/// Hoists loop-invariant instructions from the loop body to the preheader.
+/// Requires a single entry edge (preheader) to safely move instructions.
+static void hoist_from_current_loop(BBset_t *loop, BasicBlock *header,
+                                    const BBset_t &processed_subloop_blocks) {
+  assert(loop && "Loop block set cannot be null");
+  assert(header && "Loop header cannot be null");
 
-  LOG(INFO) << "====== Loop invariant motion started ======";
-
-  LoopTree loop_tree;
-  for (BBset_t *loop : loop_searcher) {
-    BBset_t *parent = loop_searcher.get_parent(loop);
-    if (parent) {
-      loop_tree[parent].insert(loop);
+  // Find the unique predecessor outside the loop (the loop's entry edge).
+  SmallVector<BasicBlock *> outside_preds;
+  for (BasicBlock *pred : header->get_pre_basic_blocks()) {
+    if (!loop->contains(pred)) {
+      outside_preds.push_back(pred);
     }
   }
 
-  LOG(INFO) << "====== Loop invariant motion ended ======";
-}
-
-// Optimize from leaf nodes on the loop tree up to the root nodes.
-void LoopInvHoist::hoist_invariants(BBset_t *loop, LoopTree &loop_tree,
-                                    LoopInfo &loop_searcher, BBset_t &vis) {
-  for (auto subloop : loop_tree[loop]) {
-    hoist_invariants(subloop, loop_tree, loop_searcher, vis);
+  // Require a unique outside predecessor whose only successor is the header.
+  if (outside_preds.size() != 1 ||
+      outside_preds[0]->get_succ_basic_blocks().size() != 1) {
+    return;
   }
 
+  // Collect and topologically sort loop-invariant instructions.
+  SetVector<Instruction *> inv_instrs =
+      collect_loop_invariant_instructions(loop, processed_subloop_blocks);
+
+  std::optional<SmallVector<Instruction *>> maybe_sorted =
+      compute_topological_order(inv_instrs);
+
+  if (!maybe_sorted || maybe_sorted->empty()) {
+    return;
+  }
+
+  BasicBlock *preheader = outside_preds[0];
+  Instruction *terminator = preheader->get_terminator();
+  preheader->remove_instr(terminator);
+
+  // Move instructions in dependency order before the terminator.
+  for (Instruction *instr : maybe_sorted.value()) {
+    BasicBlock *source = instr->get_parent();
+    source->remove_instr(instr);
+    instr->set_parent(preheader);
+    preheader->add_instruction(instr);
+  }
+
+  preheader->add_instruction(terminator);
+}
+
+/// Optimize from leaf nodes on the loop tree up to the root nodes.
+static void hoist_invariants(BBset_t *loop, LoopTree &loop_tree,
+                             LoopInfo &loop_info,
+                             BBset_t &processed_subloop_blocks) {
   if (!loop) {
     return;
   }
 
-  auto base = loop_searcher.get_base(loop);
-  std::vector<Instruction *> loop_invs;
-  // TODO: find loop invariants, insert them into loop_invs
-
-  if (!loop_invs.empty()) {
-    // Insert to the block just before the base block.
-    BasicBlock *dest = nullptr;
-    for (auto prec : base->get_pre_basic_blocks()) {
-      if (!loop->count(prec)) {
-        dest = prec;
-        break;
-      }
-    }
-    if (dest) {
-      // TODO: insert loop_invs to dest
-    } else {
-      LOG(ERROR) << "This loop doesn't have an entry block?!";
-    }
+  for (auto subloop : loop_tree[loop]) {
+    hoist_invariants(subloop, loop_tree, loop_info, processed_subloop_blocks);
   }
 
-  // Mark this loop body as analyzed
+  BasicBlock *base = loop_info.get_base(loop);
+  if (base) {
+    hoist_from_current_loop(loop, base, processed_subloop_blocks);
+  }
+
+  // Parent loops should not rescan blocks handled by this traversal.
   for (auto bb : *loop) {
-    vis.insert(bb);
+    processed_subloop_blocks.insert(bb);
   }
+}
+
+void LoopInvHoist::run() {
+  LoopInfo loop_info(m_, false);
+  loop_info.run();
+
+  LOG(INFO) << "====== Loop invariant motion started ======";
+
+  LoopTree loop_tree;
+  SmallVector<BBset_t *> root_loops;
+  for (BBset_t *loop : loop_info) {
+    BBset_t *parent = loop_info.get_parent(loop);
+    if (parent) {
+      loop_tree[parent].insert(loop);
+    } else {
+      root_loops.push_back(loop);
+    }
+  }
+
+  for (BBset_t *root : root_loops) {
+    BBset_t processed_subloop_blocks;
+    hoist_invariants(root, loop_tree, loop_info, processed_subloop_blocks);
+  }
+
+  LOG(INFO) << "====== Loop invariant motion ended ======";
 }
