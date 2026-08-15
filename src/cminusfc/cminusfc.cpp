@@ -1,13 +1,7 @@
 #include "CodeGen.hpp"
-#include "ConstPropagation.hpp"
-#include "DeadCode.hpp"
-#include "GVN.hpp"
-#include "LoopInvHoist.hpp"
-#include "Mem2Reg.hpp"
 #include "Module.hpp"
-#include "PassManager.hpp"
-#include "UnreachableBlockElim.hpp"
 #include "cminusf_builder.hpp"
+#include "passes.h"
 
 #include <filesystem>
 #include <fstream>
@@ -59,23 +53,23 @@ int main(int argc, char **argv) {
   }
 
   PassManager PM(m.get());
-  PM.add_pass<UnreachableBlockElim>();
+  PM.add_pass(createUnreachableBlockElim(m.get()));
 
   if (config.mem2reg) {
-    PM.add_pass<Mem2Reg>();
-    PM.add_pass<DeadCode>();
+    PM.add_pass(createMem2Reg(m.get()));
+    PM.add_pass(createDeadCode(m.get()));
   }
   if (config.const_prop) {
-    PM.add_pass<ConstPropagation>();
-    PM.add_pass<DeadCode>();
+    PM.add_pass(createConstPropagation(m.get()));
+    PM.add_pass(createDeadCode(m.get()));
   }
   if (config.gvn) {
-    PM.add_pass<GVN>(config.dump_json);
-    PM.add_pass<DeadCode>();
+    PM.add_pass(createGVN(m.get(), config.dump_json));
+    PM.add_pass(createDeadCode(m.get()));
   }
   if (config.loop_inv_hoist) {
-    PM.add_pass<LoopInvHoist>();
-    PM.add_pass<DeadCode>();
+    PM.add_pass(createLoopInvHoist(m.get()));
+    PM.add_pass(createDeadCode(m.get()));
   }
   PM.run();
 

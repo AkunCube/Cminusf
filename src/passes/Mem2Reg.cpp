@@ -4,8 +4,10 @@
 
 #include "BasicBlock.hpp"
 #include "Constant.hpp"
+#include "Dominators.hpp"
+#include "GlobalVariable.hpp"
 #include "Instruction.hpp"
-#include "Mem2Reg.hpp"
+#include "passes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -26,10 +28,53 @@ get_reaching_def(const DenseMap<AllocaInst *, SmallVector<Value *>> &var_stack,
   return it->second.back();
 }
 
-void Mem2Reg::run() {
-  // Build the dominator tree used by the phi insertion stage.
-  dominators_ = std::make_unique<Dominators>(m_);
-  dominators_->run();
+namespace {
+
+class Mem2Reg : public Pass {
+private:
+  using PhiAllocaPair = std::pair<PhiInst *, AllocaInst *>;
+  Function *func_;
+  Dominators *dominators_;
+  /// Allocations in the current function that can be safely promoted to SSA.
+  llvm::DenseSet<AllocaInst *> promotable_allocas_;
+  /// Promoted loads and stores to erase after renaming finishes.
+  llvm::SmallVector<Instruction *> instructions_to_delete_;
+  /// Maps each phi instruction to the alloca (memory variable) it belongs to.
+  llvm::DenseMap<PhiInst *, AllocaInst *> phi_to_alloca_;
+  /// Per-alloca stack holding the current reaching definitions.
+  llvm::DenseMap<AllocaInst *, llvm::SmallVector<Value *>> var_stack_;
+  /// Phis inserted at the entry of each block, grouped by their alloca.
+  llvm::DenseMap<BasicBlock *, llvm::DenseSet<PhiAllocaPair>> block_phi_map_;
+
+public:
+  Mem2Reg(Module *m) : Pass(m), func_(nullptr), dominators_(nullptr) {}
+  ~Mem2Reg() = default;
+
+  void run(PassManager &pm) override;
+
+private:
+  void reset_function_state();
+  void collect_promotable_allocas();
+  void delete_promoted_memory_instructions();
+  void generate_phi();
+  void rename(BasicBlock *block);
+
+  static inline bool is_global_variable(Value *l_val) {
+    return dynamic_cast<GlobalVariable *>(l_val) != nullptr;
+  }
+  static inline bool is_gep_instr(Value *l_val) {
+    return dynamic_cast<GetElementPtrInst *>(l_val) != nullptr;
+  }
+
+  static inline bool is_valid_ptr(Value *l_val) {
+    return not is_global_variable(l_val) and not is_gep_instr(l_val);
+  }
+};
+
+void Mem2Reg::run(PassManager &pm) {
+  // The dominator tree is shared with other passes through the analysis
+  // manager.
+  dominators_ = &pm.getAnalysis<Dominators>();
 
   for (auto &func : m_->get_functions()) {
     if (func.is_declaration()) {
@@ -200,4 +245,10 @@ void Mem2Reg::rename(BasicBlock *block) {
   for (auto &[alloca, count] : pushed_counts) {
     var_stack_[alloca].pop_back_n(count);
   }
+}
+
+} // namespace
+
+std::unique_ptr<Pass> createMem2Reg(Module *m) {
+  return std::make_unique<Mem2Reg>(m);
 }

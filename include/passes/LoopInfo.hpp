@@ -11,10 +11,10 @@
 
 /// Finds all loops in every function of the module using Tarjan's strongly
 /// connected components, and records each block's innermost loop entry.
-class LoopInfo : public Pass {
+class LoopInfo : public Analysis {
 public:
   explicit LoopInfo(Module *m, bool dump = false)
-      : Pass(m), en_dump_graph(dump) {}
+      : Analysis(m), en_dump_graph(dump) {}
   ~LoopInfo() override = default;
 
   void run() override;

@@ -11,9 +11,9 @@
  * WARN:
  * 假定所有函数都是纯函数，除非他写入了全局变量、修改了传入的数组、或者直接间接调用了非纯函数
  */
-class FuncInfo : public Pass {
+class FuncInfo : public Analysis {
 public:
-  FuncInfo(Module *m) : Pass(m) {}
+  explicit FuncInfo(Module *m) : Analysis(m) {}
 
   void run();
 

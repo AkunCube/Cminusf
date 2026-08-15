@@ -1,12 +1,13 @@
 #include <deque>
 
 #include "BasicBlock.hpp"
-#include "ConstPropagation.hpp"
 #include "Constant.hpp"
 #include "Function.hpp"
 #include "GlobalVariable.hpp"
 #include "IRBuilder.hpp"
 #include "Instruction.hpp"
+#include "common/ConstFolder.hpp"
+#include "passes.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -53,7 +54,24 @@ static DenseSet<BasicBlock *> simplify_constant_branches(Function &function) {
   return dead_blocks;
 }
 
-void ConstPropagation::run() {
+namespace {
+
+class ConstPropagation : public Pass {
+public:
+  using GlobalConstantMap = llvm::DenseMap<GlobalVariable *, Constant *>;
+  ConstPropagation(Module *m) : Pass(m), folder(m) {}
+  void run(PassManager &pm) override;
+
+private:
+  void run_on_function(Function &function);
+  void run_on_basic_block(BasicBlock &block);
+  void simplify_control_flow(Function &);
+  Constant *try_propagate_global_constant(Instruction *, GlobalConstantMap &);
+
+  ConstFolder folder;
+};
+
+void ConstPropagation::run(PassManager &pm) {
   for (Function &function : m_->get_functions()) {
     if (function.is_declaration()) {
       continue;
@@ -169,4 +187,10 @@ Constant *ConstPropagation::try_propagate_global_constant(
     }
   }
   return nullptr;
+}
+
+} // namespace
+
+std::unique_ptr<Pass> createConstPropagation(Module *m) {
+  return std::make_unique<ConstPropagation>(m);
 }
