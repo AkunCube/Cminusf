@@ -114,14 +114,24 @@ private:
   BasicBlock *parent_;
 };
 
-template <typename Inst> class BaseInst : public Instruction {
+template <typename Inst, typename Base = Instruction>
+class BaseInst : public Base {
 protected:
   template <typename... Args> static Inst *create(Args &&...args) {
     return new Inst(std::forward<Args>(args)...);
   }
 
   template <typename... Args>
-  BaseInst(Args &&...args) : Instruction(std::forward<Args>(args)...) {}
+  BaseInst(Args &&...args) : Base(std::forward<Args>(args)...) {}
+};
+
+class CmpInst : public Instruction {
+public:
+  // Predicate to use after swapping lhs and rhs (e.g. ge -> le).
+  virtual OpID get_swapped_predicate() const = 0;
+
+protected:
+  CmpInst(OpID id, Value *lhs, Value *rhs, BasicBlock *bb);
 };
 
 class IBinaryInst : public BaseInst<IBinaryInst> {
@@ -154,8 +164,8 @@ public:
   virtual std::string print() override;
 };
 
-class ICmpInst : public BaseInst<ICmpInst> {
-  friend BaseInst<ICmpInst>;
+class ICmpInst : public BaseInst<ICmpInst, CmpInst> {
+  friend BaseInst<ICmpInst, CmpInst>;
 
 private:
   ICmpInst(OpID id, Value *lhs, Value *rhs, BasicBlock *bb);
@@ -168,11 +178,13 @@ public:
   static ICmpInst *create_eq(Value *v1, Value *v2, BasicBlock *bb);
   static ICmpInst *create_ne(Value *v1, Value *v2, BasicBlock *bb);
 
+  OpID get_swapped_predicate() const override;
+
   virtual std::string print() override;
 };
 
-class FCmpInst : public BaseInst<FCmpInst> {
-  friend BaseInst<FCmpInst>;
+class FCmpInst : public BaseInst<FCmpInst, CmpInst> {
+  friend BaseInst<FCmpInst, CmpInst>;
 
 private:
   FCmpInst(OpID id, Value *lhs, Value *rhs, BasicBlock *bb);
@@ -184,6 +196,8 @@ public:
   static FCmpInst *create_flt(Value *v1, Value *v2, BasicBlock *bb);
   static FCmpInst *create_feq(Value *v1, Value *v2, BasicBlock *bb);
   static FCmpInst *create_fne(Value *v1, Value *v2, BasicBlock *bb);
+
+  OpID get_swapped_predicate() const override;
 
   virtual std::string print() override;
 };

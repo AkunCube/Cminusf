@@ -66,12 +66,16 @@ FBinaryInst *FBinaryInst::create_fdiv(Value *v1, Value *v2, BasicBlock *bb) {
   return create(fdiv, v1, v2, bb);
 }
 
-ICmpInst::ICmpInst(OpID id, Value *lhs, Value *rhs, BasicBlock *bb)
-    : BaseInst<ICmpInst>(bb->get_module()->get_int1_type(), id, bb) {
-  assert(lhs->get_type()->is_int32_type() && rhs->get_type()->is_int32_type() &&
-         "CmpInst operands are not both i32");
+CmpInst::CmpInst(OpID id, Value *lhs, Value *rhs, BasicBlock *bb)
+    : Instruction(bb->get_module()->get_int1_type(), id, bb) {
   add_operand(lhs);
   add_operand(rhs);
+}
+
+ICmpInst::ICmpInst(OpID id, Value *lhs, Value *rhs, BasicBlock *bb)
+    : BaseInst<ICmpInst, CmpInst>(id, lhs, rhs, bb) {
+  assert(lhs->get_type()->is_int32_type() && rhs->get_type()->is_int32_type() &&
+         "CmpInst operands are not both i32");
 }
 
 ICmpInst *ICmpInst::create_ge(Value *v1, Value *v2, BasicBlock *bb) {
@@ -93,12 +97,30 @@ ICmpInst *ICmpInst::create_ne(Value *v1, Value *v2, BasicBlock *bb) {
   return create(ne, v1, v2, bb);
 }
 
+Instruction::OpID ICmpInst::get_swapped_predicate() const {
+  switch (get_instr_type()) {
+    case ge:
+      return le;
+    case gt:
+      return lt;
+    case le:
+      return ge;
+    case lt:
+      return gt;
+    case eq:
+      return eq;
+    case ne:
+      return ne;
+    default:
+      assert(false && "unexpected icmp predicate");
+      return eq;
+  }
+}
+
 FCmpInst::FCmpInst(OpID id, Value *lhs, Value *rhs, BasicBlock *bb)
-    : BaseInst<FCmpInst>(bb->get_module()->get_int1_type(), id, bb) {
+    : BaseInst<FCmpInst, CmpInst>(id, lhs, rhs, bb) {
   assert(lhs->get_type()->is_float_type() && rhs->get_type()->is_float_type() &&
          "FCmpInst operands are not both float");
-  add_operand(lhs);
-  add_operand(rhs);
 }
 
 FCmpInst *FCmpInst::create_fge(Value *v1, Value *v2, BasicBlock *bb) {
@@ -118,6 +140,26 @@ FCmpInst *FCmpInst::create_feq(Value *v1, Value *v2, BasicBlock *bb) {
 }
 FCmpInst *FCmpInst::create_fne(Value *v1, Value *v2, BasicBlock *bb) {
   return create(fne, v1, v2, bb);
+}
+
+Instruction::OpID FCmpInst::get_swapped_predicate() const {
+  switch (get_instr_type()) {
+    case fge:
+      return fle;
+    case fgt:
+      return flt;
+    case fle:
+      return fge;
+    case flt:
+      return fgt;
+    case feq:
+      return feq;
+    case fne:
+      return fne;
+    default:
+      assert(false && "unexpected fcmp predicate");
+      return feq;
+  }
 }
 
 CallInst::CallInst(Function *func, std::vector<Value *> args, BasicBlock *bb)
