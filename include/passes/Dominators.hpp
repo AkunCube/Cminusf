@@ -7,11 +7,11 @@
 #include <map>
 #include <set>
 
-class Dominators : public Pass {
+class Dominators : public Analysis {
 public:
   using BBSet = std::set<BasicBlock *>;
 
-  explicit Dominators(Module *m) : Pass(m) {}
+  explicit Dominators(Module *m) : Analysis(m) {}
   ~Dominators() = default;
   void run() override;
 

@@ -4,9 +4,9 @@
 
 #include "Instruction.hpp"
 #include "LoopInfo.hpp"
-#include "LoopInvHoist.hpp"
 #include "common.hpp"
 #include "logging.hpp"
+#include "passes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -210,9 +210,19 @@ static void hoist_invariants(BBset_t *loop, LoopTree &loop_tree,
   }
 }
 
-void LoopInvHoist::run() {
-  LoopInfo loop_info(m_, false);
-  loop_info.run();
+namespace {
+
+/// Hoists loop-invariant instructions out of loops (loop-invariant code
+/// motion, LICM).
+class LoopInvHoist : public Pass {
+public:
+  LoopInvHoist(Module *m) : Pass(m) {}
+
+  void run(PassManager &pm) override;
+};
+
+void LoopInvHoist::run(PassManager &pm) {
+  LoopInfo &loop_info = pm.getAnalysis<LoopInfo>();
 
   LOG(INFO) << "====== Loop invariant motion started ======";
 
@@ -233,4 +243,10 @@ void LoopInvHoist::run() {
   }
 
   LOG(INFO) << "====== Loop invariant motion ended ======";
+}
+
+} // namespace
+
+std::unique_ptr<Pass> createLoopInvHoist(Module *m) {
+  return std::make_unique<LoopInvHoist>(m);
 }

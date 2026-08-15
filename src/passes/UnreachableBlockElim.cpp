@@ -4,7 +4,7 @@
 #include "BasicBlock.hpp"
 #include "Function.hpp"
 #include "Instruction.hpp"
-#include "UnreachableBlockElim.hpp"
+#include "passes.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -29,7 +29,18 @@ static void remove_dead_predecessor_from_phis(BasicBlock *succ,
   }
 }
 
-void UnreachableBlockElim::run() {
+namespace {
+
+/// Eliminates basic blocks unreachable from the function entry.
+/// Keeps only blocks reachable via CFG edges from the entry block.
+class UnreachableBlockElim : public Pass {
+  using Pass::Pass;
+
+public:
+  void run(PassManager &pm) override;
+};
+
+void UnreachableBlockElim::run(PassManager &pm) {
   for (Function &func : m_->get_functions()) {
     if (func.is_declaration()) {
       continue;
@@ -76,4 +87,10 @@ void UnreachableBlockElim::run() {
       }
     }
   }
+}
+
+} // namespace
+
+std::unique_ptr<Pass> createUnreachableBlockElim(Module *m) {
+  return std::make_unique<UnreachableBlockElim>(m);
 }
