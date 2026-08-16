@@ -1,4 +1,5 @@
-#pragma once
+#ifndef CODEGEN_CODEGENREGISTER_HPP
+#define CODEGEN_CODEGENREGISTER_HPP
 
 #include "ASMInstruction.hpp"
 #include "BasicBlock.hpp"
@@ -6,16 +7,19 @@
 #include "Function.hpp"
 #include "IRprinter.hpp"
 #include "Instruction.hpp"
+#include "Liverange.hpp"
 #include "Module.hpp"
+#include "Regalloc.hpp"
 #include "Register.hpp"
 #include "Value.hpp"
-#include "liverange.hpp"
-#include "regalloc.hpp"
-#include <functional>
+
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
 
 // #define STACK_ALIGN(x) (((x / 16) + (x % 16 ? 1 : 0)) * 16)
 #define STACK_ALIGN(x) ALIGN(x, 16)
-#define CONST_0 ConstantInt::get(0, m)
+#define CONST_0 ConstantInt::get(0, module)
 #define FP "$fp"
 #define SP "$sp"
 #define RA_reg "$ra"
@@ -28,8 +32,8 @@
 class CodeGenRegister {
 public:
   explicit CodeGenRegister(Module *module)
-      : m(module), LRA(module, phi_map), RA_int(R_USABLE, false),
-        RA_float(FR_USABLE, true) {}
+      : module(module), live_range_analyzer(module, phi_map),
+        ra_int(R_USABLE, false), ra_float(FR_USABLE, true) {}
 
   std::string print() const;
 
@@ -39,7 +43,7 @@ public:
     output.emplace_back(arg...);
   }
 
-  void append_inst(const char *inst, std::initializer_list<std::string> args,
+  void append_inst(const char *inst, llvm::ArrayRef<std::string> args,
                    ASMInstruction::InstType ty = ASMInstruction::Instruction) {
     auto content = std::string(inst) + " ";
     for (const auto &arg : args) {
@@ -52,38 +56,38 @@ public:
 
 private:
   // TODO: 添加你需要的函数
-  void getPhiMap();
-  __attribute__((warn_unused_result)) string value2reg(Value *, int i = 0,
-                                                       string = "");
+  void get_phi_map();
+  __attribute__((warn_unused_result)) std::string
+  value_to_reg(Value *, int i = 0, std::string = "");
   void copy_stmt();
   void pass_arguments(CallInst *);
-  void makeSureInRange(string instr_ir, string reg1, string reg2, int imm,
-                       string tinstr, int tid = 0, int bits = 12,
-                       bool u = false) {
+  void make_sure_in_range(std::string instr_ir, std::string reg1,
+                          std::string reg2, int imm, std::string tinstr,
+                          int tid = 0, int bits = 12, bool u = false) {
     /* this function will tranfser
      * `addi.d $a0, $fp, imm` to `add.d $a0, $fp, tmp_ireg` if imm
      * overfloats for `addi.d`. During the time we move `imm` to `tmp_ireg`,
      * another tmp ireg will be used, they can be same, but we must specify
      * it.
      */
-    auto treg = tmpregname(tid, false);
+    auto treg = tmp_reg_name(tid, false);
     assert(treg != reg2 && "it's possible to write tid before reg2's use");
-    auto [l, h] = immRange(bits, u);
+    auto [l, h] = imm_range(bits, u);
     if (l <= imm and imm <= h) {
-      append_inst(instr_ir.c_str(), {reg1, reg2, to_string(imm)});
+      append_inst(instr_ir.c_str(), {reg1, reg2, std::to_string(imm)});
     } else {
-      assert(value2reg(ConstantInt::get(imm, m), tid, treg) == treg);
+      assert(value_to_reg(ConstantInt::get(imm, module), tid, treg) == treg);
       append_inst(tinstr.c_str(), {reg1, reg2, treg});
     }
   }
 
   // 进行copy操作
-  bool gencopy(Value *lhs, string rhs_reg);
-  void gencopy(string lhs_reg, string rhs_reg, bool is_float);
+  bool gen_copy(Value *lhs, std::string rhs_reg);
+  void gen_copy(std::string lhs_reg, std::string rhs_reg, bool is_float);
   // 处理指针情况
-  void ptrContent2reg(Value *, string);
-  pair<string, bool> getRegName(Value *, int = 0) const;
-  string bool2branch(Instruction *);
+  void ptr_content_to_reg(Value *, std::string);
+  std::pair<std::string, bool> get_reg_name(Value *, int = 0) const;
+  std::string bool_to_branch(Instruction *);
 
   // 向寄存器中装载数据
   void load_to_greg(Value *, const Reg &);
@@ -128,34 +132,34 @@ private:
     return label_name(bb) + "_fcmp_" + std::to_string(cnt);
   }
 
-  static string regname(uint i, bool is_float) {
-    string name;
+  static std::string reg_name(uint i, bool is_float) {
+    std::string name;
     if (is_float) {
       // assert(false && "not implemented!");
       if (1 <= i and i <= 8)
-        name = "$fa" + to_string(i - 1);
+        name = "$fa" + std::to_string(i - 1);
       else if (9 <= i and i <= FR_USABLE)
-        name = "$ft" + to_string(i - 9 + 2);
+        name = "$ft" + std::to_string(i - 9 + 2);
       else
-        name = "WRONG_REG_" + to_string(i);
+        name = "WRONG_REG_" + std::to_string(i);
     } else {
       if (1 <= i and i <= 8)
-        name = "$a" + to_string(i - 1);
+        name = "$a" + std::to_string(i - 1);
       else if (9 <= i and i <= R_USABLE)
-        name = "$t" + to_string(i - 9 + 2);
+        name = "$t" + std::to_string(i - 9 + 2);
       else
-        name = "WRONG_REG_" + to_string(i);
+        name = "WRONG_REG_" + std::to_string(i);
     }
     return name;
   }
 
-  string tmpregname(int i, bool is_float) const {
+  std::string tmp_reg_name(int i, bool is_float) const {
     assert(i == 0 or i == 1);
-    return (is_float ? "$ft" : "$t") + to_string(i);
+    return (is_float ? "$ft" : "$t") + std::to_string(i);
   }
 
-  static pair<int, int> immRange(int bit, bool u) {
-    pair<int, int> res;
+  static std::pair<int, int> imm_range(int bit, bool u) {
+    std::pair<int, int> res;
     if (u) {
       res.first = 0;
       res.second = (1 << bit) - 1;
@@ -168,7 +172,7 @@ private:
     return res;
   };
 
-  static int typeLen(Type *type) {
+  static int type_len(Type *type) {
     if (type->is_float_type())
       return 4;
     else if (type->is_integer_type()) {
@@ -181,14 +185,14 @@ private:
     else if (type->is_array_type()) {
       auto arr_tp = static_cast<ArrayType *>(type);
       int n = arr_tp->get_num_of_elements();
-      return n * typeLen(arr_tp->get_element_type());
+      return n * type_len(arr_tp->get_element_type());
     } else {
       assert(false && "unexpected case while computing type-length");
     }
   }
 
-  static string suffix(Type *type) {
-    int len = typeLen(type);
+  static std::string suffix(Type *type) {
+    int len = type_len(type);
     switch (len) {
       case 1:
         return ".b";
@@ -207,15 +211,15 @@ private:
       return true;
     if (instr->is_fcmp() or instr->is_cmp() or instr->is_zext())
       return true;
-    auto regmap =
-        (instr->get_type()->is_float_type() ? RA_float.get() : RA_int.get());
-    if (regmap.find(instr) != regmap.end())
+    auto reg_map = (instr->get_type()->is_float_type() ? ra_float.get_reg_map()
+                                                       : ra_int.get_reg_map());
+    if (reg_map.find(instr) != reg_map.end())
       return true;
 
     return false;
   }
 
-  string label_in_assem(BasicBlock *bb) const {
+  std::string label_in_assem(BasicBlock *bb) const {
     return (context.func)->get_name() + bb->get_name().substr(5);
   }
 
@@ -225,8 +229,8 @@ private:
     BasicBlock *bb{nullptr};    // 当前基本块
     Instruction *inst{nullptr}; // 当前指令
     /* 在allocate()中设置 */
-    unsigned frame_size{0}; // 当前函数的栈帧大小
-    std::unordered_map<Value *, int> offset_map{}; // 指针相对 fp 的偏移
+    unsigned frame_size{0};                    // 当前函数的栈帧大小
+    llvm::DenseMap<Value *, int> offset_map{}; // 指针相对 fp 的偏移
     unsigned fcmp_cnt{0}; // fcmp 的计数器, 用于创建 fcmp 需要的 label
 
     void clear() {
@@ -240,17 +244,18 @@ private:
 
   } context;
 
-  Module *m;
-  std::list<ASMInstruction> output;
+  Module *module;
+  llvm::SmallVector<ASMInstruction> output;
 
-  LRA::LiveRangeAnalyzer LRA;
-  LRA::LVITS LVITS_int, LVITS_float;
-  RA::RegAllocator RA_int, RA_float;
+  LRA::LiveRangeAnalyzer live_range_analyzer;
+  LRA::LiveIntervalSet live_intervals_int, live_intervals_float;
+  RA::RegAllocator ra_int, ra_float;
 
-  std::map<BasicBlock *, std::vector<std::pair<Value *, Value *>>> phi_map;
-  std::map<Constant *, std::string> ROdata;
+  LRA::PhiMap phi_map;
+  llvm::DenseMap<Constant *, std::string> ro_data;
 
   // TODO:添加你需要的变量
 };
 // TODO:本次实验为开放性实验，你可以自行设计实验框架并自行对提供的实验框架进行修改。本框架只作为参考，不要让它束缚住你的设计思路。
 // TODO: 对框架不满可尽情修改
+#endif

@@ -1,12 +1,7 @@
-#include "regalloc.hpp"
+#include "Regalloc.hpp"
 
 #include "Function.hpp"
 #include "Instruction.hpp"
-#include "liverange.hpp"
-
-#include <algorithm>
-
-using std::for_each;
 
 using namespace RA;
 
@@ -39,38 +34,39 @@ void RegAllocator::reset(Function *func) {
   // TODO: 对相关参数进行初始化
 }
 
-void RegAllocator::ReserveForArg(const LVITS &liveints) {
+void RegAllocator::reserve_for_arg(const LRA::LiveIntervalSet &liveints) {
   // TODO:
   // 先对函数参数进行分配，分完为止，在本实验框架中会对INT/FLOAT进行分类讨论，在考虑INT类型时无需考虑FLOAT类型变量，反之同理
 }
 
 // input set is sorted by increasing start point
-void RegAllocator::LinearScan(const LVITS &liveints, Function *func) {
+void RegAllocator::linear_scan(const LRA::LiveIntervalSet &liveints,
+                               Function *func) {
   reset(func);
-  ReserveForArg(liveints);
+  reserve_for_arg(liveints);
   int reg;
   for (auto liveint : liveints) {
 
     // TODO: 考虑有哪些情况的liveint不需要进行分析
 
-    ExpireOldIntervals(liveint);
-    if (active.size() == R)
-      SpillAtInterval(liveint);
+    expire_old_intervals(liveint);
+    if (active.size() == num_regs)
+      spill_at_interval(liveint);
     else {
-      for (reg = 1; reg <= R and used[reg]; ++reg)
+      for (reg = 1; reg <= num_regs and used[reg]; ++reg)
         ;
       used[reg] = true;
-      regmap[liveint.second] = reg;
+      reg_map[liveint.second] = reg;
       active.insert(liveint);
     }
   }
 }
 
-void RegAllocator::ExpireOldIntervals(LiveInterval liveint) {
+void RegAllocator::expire_old_intervals(LRA::LiveInterval liveint) {
   // TODO: 清除与当前的liveint已无交集的活跃变量
 }
 
-void RegAllocator::SpillAtInterval(LiveInterval liveint) {
+void RegAllocator::spill_at_interval(LRA::LiveInterval liveint) {
   // TODO: 处理溢出情况
 }
 // TODO: 对框架不满可尽情修改
