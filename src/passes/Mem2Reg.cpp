@@ -50,6 +50,11 @@ public:
   Mem2Reg(Module *m) : Pass(m), func_(nullptr), dominators_(nullptr) {}
   ~Mem2Reg() = default;
 
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    // Mem2Reg only inserts phis and erases instructions, never the CFG.
+    AU.setPreservesCFG();
+  }
+
   void run(PassManager &pm) override;
 
 private:

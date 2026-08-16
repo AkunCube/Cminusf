@@ -15,4 +15,6 @@ std::unique_ptr<Pass> createMem2Reg(Module *m);
 std::unique_ptr<Pass> createDeadCode(Module *m);
 std::unique_ptr<Pass> createConstPropagation(Module *m);
 std::unique_ptr<Pass> createGVN(Module *m, bool dump_json = false);
+std::unique_ptr<Pass> createGlobalValueNumbering(Module *m,
+                                                 bool dump_json = false);
 std::unique_ptr<Pass> createLoopInvHoist(Module *m);

@@ -218,6 +218,11 @@ class LoopInvHoist : public Pass {
 public:
   LoopInvHoist(Module *m) : Pass(m) {}
 
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    // LICM only moves instructions between existing blocks, never the CFG.
+    AU.setPreservesCFG();
+  }
+
   void run(PassManager &pm) override;
 };
 

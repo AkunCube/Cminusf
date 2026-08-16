@@ -3,6 +3,7 @@ add_library(
     ConstPropagation.cpp
     Dominators.cpp
     Mem2Reg.cpp
+    GlobalValueNumbering.cpp
     FuncInfo.cpp
     DeadCode.cpp
     GVN.cpp
