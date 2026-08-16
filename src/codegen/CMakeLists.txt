@@ -2,9 +2,9 @@ add_library(
     codegen STATIC
     CodeGen.cpp
     CodeGenRegister.cpp
-    liverange.cpp
+    Liverange.cpp
     Register.cpp
-    regalloc.cpp
+    Regalloc.cpp
 )
 
 target_link_libraries(codegen common IR_lib)

@@ -1,10 +1,8 @@
-#include "liverange.hpp"
+#include "Liverange.hpp"
 
 #include "BasicBlock.hpp"
 #include "Function.hpp"
 #include "logging.hpp"
-
-#include <deque>
 
 using namespace LRA;
 
@@ -12,7 +10,7 @@ void LiveRangeAnalyzer::clear() {
   // TODO:每次活跃变量分析前清空定义的变量
 }
 
-LiveSet LiveRangeAnalyzer::joinFor(BasicBlock *bb) {
+LiveSet LiveRangeAnalyzer::join_for(BasicBlock *bb) {
   LiveSet out;
   for (auto succ : bb->get_succ_basic_blocks()) {
     auto &irs = succ->get_instructions();
@@ -20,16 +18,16 @@ LiveSet LiveRangeAnalyzer::joinFor(BasicBlock *bb) {
     while (it != irs.end() and it->is_phi())
       ++it;
     assert(it != irs.end() && "need to find first_ir from copy-stmt");
-    // TODO: 合并当前bb的所有后继块的IN集合，计算OUT[B]
+    // TODO: 合并当前bb的所有后继块的 in_set 集合，计算 out_set[B]
   }
   return out;
 }
 
 void LiveRangeAnalyzer::make_id(Function *func) {
   /*TODO:
-  按排序后的BB为所有的指令标定行号，这里建议指令行号是指令数的两倍，这样便于分辨指令的IN和OUT.
-  由于已经进行了copystmt,所以phi语句无需进行标定*/
-  for (auto bb : BB_DFS_Order) {
+  按排序后的BB为所有的指令标定行号，这里建议指令行号是指令数的两倍，这样便于分辨指令的
+  in_set 和 out_set. 由于已经进行了copystmt,所以phi语句无需进行标定*/
+  for (auto bb : bb_dfs_order) {
     for (auto &instr : bb->get_instructions()) {
       if (instr.is_phi())
         continue;
@@ -39,10 +37,10 @@ void LiveRangeAnalyzer::make_id(Function *func) {
 }
 
 void LiveRangeAnalyzer::get_dfs_order(Function *func) {
-  // TODO: 对当前函数的BasicBlocks进行DFS并将结果保存在BB_DFS_Order中
+  // TODO: 对当前函数的BasicBlocks进行DFS并将结果保存在 bb_dfs_order 中
 }
 
-LiveSet LiveRangeAnalyzer::transferFunction(Instruction *instr) {
+LiveSet LiveRangeAnalyzer::transfer_function(Instruction *instr) {
   /*TODO: 在平时讲述的活跃变量分析中我们是对每个块计算 IN[B] = use + (OUT[B] -
   def), 但在具体程序流分析中我们可以对每条语句进行计算来达到等价的效果
   这个函数就用于对每条语句计算instr的 in = use + out - def
@@ -59,7 +57,7 @@ void LiveRangeAnalyzer::run(Function *func) {
     cont = false;
     // 活跃变量分析是逆向搜索的
 
-    for (auto rit_bb = BB_DFS_Order.rbegin(); rit_bb != BB_DFS_Order.rend();
+    for (auto rit_bb = bb_dfs_order.rbegin(); rit_bb != bb_dfs_order.rend();
          ++rit_bb) {
       auto bb = *rit_bb;
       bool last_ir = true;
@@ -82,18 +80,18 @@ void LiveRangeAnalyzer::run(Function *func) {
       }
     }
   }
-  // 将function中的argument添加到IN集合中
-  assert(IN.find(0) == IN.end() and OUT.find(0) == OUT.end() &&
+  // 将function中的argument添加到 in_set 集合中
+  assert(in_set.find(0) == in_set.end() and out_set.find(0) == out_set.end() &&
          "no instr_id will be mapped to 0");
-  IN[0] = OUT[0] = {};
+  in_set[0] = out_set[0] = {};
   for (auto &arg : func->get_args())
-    IN[0].insert(&arg);
+    in_set[0].insert(&arg);
   make_interval(func);
 }
 
 void LiveRangeAnalyzer::make_interval(Function *) {
   // TODO:计算每个变量的活跃区间
-  for (auto &[op, interval] : intervalmap)
-    liveIntervals.insert({interval, op});
+  for (auto &[op, interval] : interval_map)
+    live_intervals.insert({interval, op});
 }
 // TODO: 对框架不满可尽情修改
