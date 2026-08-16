@@ -5,9 +5,9 @@
 #include <string>
 
 #include "Function.hpp"
+#include "Instruction.hpp"
 #include "Module.hpp"
 #include "Value.hpp"
-
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallSet.h"
@@ -17,24 +17,25 @@
 
 namespace LRA {
 
+/// A live range [start, end] on the function's position line.
 struct Interval {
   Interval(int start = UNINITIAL, int end = UNINITIAL)
       : start(start), end(end) {}
-  int start; // 活跃区间起始点
-  int end;   // 活跃区间结束点
+  int start; ///< first live position
+  int end;   ///< last live position
 
-  // SmallSet 的小容量线性查找需要元素支持 operator==
+  /// SmallSet's linear search for small capacities requires operator==.
   bool operator==(const Interval &other) const {
     return start == other.start && end == other.end;
   }
 };
 
 using LiveSet = llvm::DenseSet<Value *>;
-using PhiMap = llvm::DenseMap<BasicBlock *,
-                              llvm::SmallVector<std::pair<Value *, Value *>>>;
+using PhiToCopy = std::pair<Value *, Value *>; ///< (dst, src)
+using PhiMap = llvm::DenseMap<BasicBlock *, llvm::SmallVector<PhiToCopy>>;
 using LiveInterval = std::pair<Interval, Value *>;
 
-// 对活跃变量进行排序，此处采用按活跃区间的起始点进行排序
+/// Order live values by the start of their live interval.
 struct LiveIntervalCmp {
   bool operator()(LiveInterval const &lhs, LiveInterval const &rhs) const {
     std::regex pattern_arg("arg\\d+");
@@ -51,10 +52,11 @@ struct LiveIntervalCmp {
   }
 };
 
-// SmallSet 在小容量时按插入序存储；N=0 强制走 std::set 路径，
-// 从而保持按 LiveIntervalCmp 排序的迭代语义。
+/// SmallSet stores small capacities in insertion order; N=0 forces the
+/// std::set path so that iteration follows LiveIntervalCmp's ordering.
 using LiveIntervalSet = llvm::SmallSet<LiveInterval, 0, LiveIntervalCmp>;
 
+/// Backward liveness analysis and live-interval construction for one function.
 class LiveRangeAnalyzer {
   friend class CodeGenRegister;
 
@@ -63,10 +65,12 @@ private:
   llvm::DenseMap<Value *, Interval> interval_map;
   llvm::SmallVector<BasicBlock *> bb_dfs_order;
   llvm::DenseMap<int, LiveSet> in_set, out_set;
-  // phi_map: 标识在bb中的copy-statement
+  /// Copy statements inserted at the end of each basic block.
   const PhiMap &phi_map;
   LiveIntervalSet live_intervals;
-  // TODO:添加你需要的变量
+  llvm::DenseMap<Instruction *, int>
+      instr_id;                           ///< id of each numbered instruction
+  llvm::DenseMap<PhiToCopy, int> copy_id; ///< id of each copy statement
 
   void get_dfs_order(Function *);
   void make_id(Function *);
@@ -77,7 +81,10 @@ private:
     for (Value *v : src)
       dest.insert(v);
   }
-  LiveSet transfer_function(Instruction *);
+  LiveSet transfer_function(Instruction *instr, const LiveSet &cur_out);
+  /// Apply the parallel copy statements before bb's terminator and return the
+  /// live set at the entry of the copy block.
+  LiveSet process_copy_stmts(BasicBlock *bb, const LiveSet &live_out);
 
 public:
   LiveRangeAnalyzer(Module *module, PhiMap &phi_map)
@@ -106,5 +113,3 @@ public:
 };
 } // namespace LRA
 #endif
-// TODO: 这只是一个样例，你可以自行对框架进行修改以符合你自己的心意
-// TODO: 对框架不满可尽情修改
