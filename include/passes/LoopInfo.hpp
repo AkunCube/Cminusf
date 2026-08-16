@@ -16,6 +16,7 @@ public:
   explicit LoopInfo(Module *m, bool dump = false)
       : Analysis(m), en_dump_graph(dump) {}
   ~LoopInfo() override = default;
+  bool isCFGOnly() const override { return true; }
 
   void run() override;
 

@@ -16,6 +16,13 @@ class DeadCode : public Pass {
 public:
   DeadCode(Module *m) : Pass(m), func_info(nullptr) {}
 
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    // DeadCode only erases instructions: the CFG is untouched, and removing
+    // dead (pure) calls or loads never changes function purity.
+    AU.setPreservesCFG();
+    AU.preserve<FuncInfo>();
+  }
+
   void run(PassManager &pm) override;
 
 private:

@@ -64,7 +64,8 @@ int main(int argc, char **argv) {
     PM.add_pass(createDeadCode(m.get()));
   }
   if (config.gvn) {
-    PM.add_pass(createGVN(m.get(), config.dump_json));
+    PM.add_pass(createDeadCode(m.get()));
+    PM.add_pass(createGlobalValueNumbering(m.get(), config.dump_json));
     PM.add_pass(createDeadCode(m.get()));
   }
   if (config.loop_inv_hoist) {

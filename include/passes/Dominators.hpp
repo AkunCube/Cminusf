@@ -13,6 +13,7 @@ public:
 
   explicit Dominators(Module *m) : Analysis(m) {}
   ~Dominators() = default;
+  bool isCFGOnly() const override { return true; }
   void run() override;
 
   BasicBlock *get_idom(BasicBlock *bb) { return idom_.at(bb); }
