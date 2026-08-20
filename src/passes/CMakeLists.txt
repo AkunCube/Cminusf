@@ -10,6 +10,7 @@ add_library(
     LoopInvHoist.cpp
     LoopInfo.cpp
     SimplifyPhi.cpp
+    SplitCriticalEdges.cpp
     UnreachableBlockElim.cpp
 )
 

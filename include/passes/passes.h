@@ -12,6 +12,7 @@
 /// here: request them inside a pass via `pm.getAnalysis<...>()`.
 std::unique_ptr<Pass> createUnreachableBlockElim(Module *m);
 std::unique_ptr<Pass> createSimplifyPhi(Module *m);
+std::unique_ptr<Pass> createSplitCriticalEdges(Module *m);
 std::unique_ptr<Pass> createMem2Reg(Module *m);
 std::unique_ptr<Pass> createDeadCode(Module *m);
 std::unique_ptr<Pass> createConstPropagation(Module *m);
