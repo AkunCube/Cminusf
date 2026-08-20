@@ -9,6 +9,7 @@ add_library(
     GVN.cpp
     LoopInvHoist.cpp
     LoopInfo.cpp
+    SimplifyPhi.cpp
     UnreachableBlockElim.cpp
 )
 
