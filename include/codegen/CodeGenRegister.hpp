@@ -27,7 +27,7 @@
 #define R_USABLE (17 - 2)
 // #fa = 8, #ft=16, reserve $ft0, $ft1 for temporary
 #define FR_USABLE (24 - 2)
-#define ARG_R 8
+// Number of argument registers; shared with RA::ARG_MAX_R (see Regalloc.hpp)
 
 class CodeGenRegister {
 public:
