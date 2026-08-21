@@ -1,7 +1,6 @@
 #ifndef CODEGEN_LIVERANGE_HPP
 #define CODEGEN_LIVERANGE_HPP
 
-#include <regex>
 #include <string>
 
 #include "Function.hpp"
@@ -38,9 +37,8 @@ using LiveInterval = std::pair<Interval, Value *>;
 /// Order live values by the start of their live interval.
 struct LiveIntervalCmp {
   bool operator()(LiveInterval const &lhs, LiveInterval const &rhs) const {
-    std::regex pattern_arg("arg\\d+");
-    bool is_lhs_arg = std::regex_match(lhs.second->get_name(), pattern_arg);
-    bool is_rhs_arg = std::regex_match(rhs.second->get_name(), pattern_arg);
+    bool is_lhs_arg = dynamic_cast<Argument *>(lhs.second);
+    bool is_rhs_arg = dynamic_cast<Argument *>(rhs.second);
     if (is_lhs_arg && !is_rhs_arg)
       return true;
     if (!is_lhs_arg && is_rhs_arg)

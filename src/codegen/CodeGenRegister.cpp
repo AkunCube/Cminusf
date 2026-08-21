@@ -1,6 +1,7 @@
 #include "CodeGenRegister.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -26,7 +27,30 @@
 
 void CodeGenRegister::get_phi_map() {
   phi_map.clear();
-  // TODO:对phi函数进行处理，为phi_map赋值
+  // Lower each phi incoming value to a copy in its predecessor block.
+  for (Function &func : module->get_functions()) {
+    if (func.is_declaration()) {
+      continue;
+    }
+
+    for (BasicBlock &bb : func.get_basic_blocks()) {
+      for (Instruction &instr : bb.get_instructions()) {
+        if (!instr.is_phi()) {
+          break;
+        }
+
+        unsigned int num_operands = instr.get_num_operand();
+        assert(num_operands > 0 && num_operands % 2 == 0 &&
+               "malformed phi instruction");
+        for (unsigned int i = 0; i < num_operands; i += 2) {
+          BasicBlock *pred =
+              dynamic_cast<BasicBlock *>(instr.get_operand(i + 1));
+          assert(pred);
+          phi_map[pred].push_back({&instr, instr.get_operand(i)});
+        }
+      }
+    }
+  }
 }
 
 std::string CodeGenRegister::value_to_reg(Value *v, int i,
@@ -55,14 +79,14 @@ std::string CodeGenRegister::value_to_reg(Value *v, int i,
   } else if (dynamic_cast<AllocaInst *>(v)) {
     make_sure_in_range("addi.d", reg, FP, context.offset_map.at(v), "add.d", i);
   } else if (dynamic_cast<Argument *>(v)) {
-    int id = 1;
+    unsigned id = 1;
     for (auto &arg : context.func->get_args()) {
       if ((&arg) == v)
         break;
       id++;
     }
-    if (id <= ARG_R)
-      return reg_name(ARG_R, is_float);
+    if (id <= RA::ARG_MAX_R)
+      return reg_name(id, is_float);
     else {
       // TODO: 当传入参数大于8的时候该如何处理
     }
@@ -88,7 +112,7 @@ void CodeGenRegister::pass_arguments(CallInst *instr) {
   /*TODO: 将参数正确传递，注意成环情况。你可以使用临时寄存器来暂存参数内容。
   你也可以自行设计这一部分(gen_call +
   pass_arguments)来正确完成对callinst的处理*/
-  const int N = 8;
+  const int N = RA::ARG_MAX_R;
   auto func = static_cast<Function *>(instr->get_operand(0));
 }
 
